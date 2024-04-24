@@ -1,13 +1,13 @@
 #include <Arduino.h>
-// #include <SPI.h>
-// #include <Wire.h>
+#include <SPI.h>
+#include <Wire.h>
 
 // put function declarations here:
-int myFunction(int, int);
+// int myFunction(int, int);
 
 void setup() {
   // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  // int result = myFunction(2, 3);
 }
 
 void loop() {
@@ -15,6 +15,6 @@ void loop() {
 }
 
 // put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
-}
+// int myFunction(int x, int y) {
+//   return x + y;
+// }
