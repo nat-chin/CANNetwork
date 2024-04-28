@@ -13,7 +13,7 @@ void irqHandler() {
 
 void setup() {
     //
-    attachInterrupt(0, irqHandler, FALLING);
+    attachInterrupt(digitalPinToInterrupt(2), irqHandler, FALLING);
 }
 
 void loop() {
