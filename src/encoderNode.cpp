@@ -19,7 +19,7 @@
   #include <SPI.h>
   #include <mcp2515.h>
   struct can_frame canMsg1; // init can frame structure
-  MCP2515 mcp2515(10);
+  MCP2515 mcp2515(10); // Clock select at Digital pin 10
 
 // --------------------------------------------------------//
 

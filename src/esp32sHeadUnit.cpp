@@ -22,7 +22,7 @@ void setup() {
   CAN.setPins (RX_GPIO_NUM, TX_GPIO_NUM);
 
   // start the CAN bus at 500 kbps , E3 indicates 10^3 or kilos
-  if (!CAN.begin (125E3)) {
+  if (!CAN.begin (500E3)) {
     Serial.println ("Starting CAN failed!");
     while (1);
   }
