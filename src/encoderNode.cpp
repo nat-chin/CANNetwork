@@ -110,6 +110,9 @@ float* readMPU() {
   return imuData; // Return the array of IMU data
 }
 
+
+// ชิบหาย ละ ข้อมูลที่มัน return มาจาก IMU lib แม่งเป็น float หมดเลย 4 byte ไอสัส
+
 void readEncoder() {
         
 	// Read the current state of CLK
