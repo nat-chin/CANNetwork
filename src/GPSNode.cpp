@@ -12,78 +12,86 @@ TinyGPSPlus gps;
 // The serial connection to the GPS device
 SoftwareSerial ss(RXPin, TXPin);
 
-/* CAN init */
+/* mcp2515 init */
 #include <SPI.h>
 #include <mcp2515.h> 
-struct can_frame canMsg1;
+#define standard_bitrate CAN_500KBPS
+#define standard_delay 100
+MCP2515 mcp2515(10);
+struct can_frame canMsg1; // 1st CAN frame
+struct can_frame canMsg2;  // 2nd CAN frame
 
 void setup() {
   Serial.begin(115200);
   ss.begin(GPSBaud);
 
-  canMsg1.can_id  = 0x0F8; // 11 bit identifier(standard CAN)
-  canMsg1.can_dlc = 8; // dlc = data length code -> indicates 8 byte of data that will be sent to the bus (can be less than 8 but not more)
+  /*  mcp2515 init  */
+    while (!Serial); // halt communication if Uart Serial port isn't available
+    mcp2515.reset();
+    mcp2515.setBitrate(CAN_500KBPS); //Set Bit rate to 500KBPS (Need to match with target device)
+    mcp2515.setNormalMode();
+  /* Set CAN Frame struct.*/
+  canMsg1.can_id  = 0x0F1; // 11 bit identifier(standard CAN)
+  canMsg1.can_dlc = 8; // dlc = data length code -> max 8 byte of data
+
 }
 
 static void smartDelay(unsigned long ms);
-// static void printFloat(float val, bool valid, int len, int prec);
-// static void printInt(unsigned long val, bool valid, int len);
-// static void printDateTime(TinyGPSDate &d, TinyGPSTime &t);
-// static void printStr(const char *str, int len);
-unsigned char *EncodeFloat(float f);
-float DecodeFloat(unsigned char* c);
+unsigned char *Encode_bytearray(float f);
+float Decode_bytearray(unsigned char* c);
 
 
 void loop() {
- 
-  // what I only want is printing the Latitude , and Longitude data
-  // Then encode (This one I may need to understand NMEA sentence a bit)
-  /* All of this ties to NMEA Sequence field (not by order) */ 
-
-  // printFloat(gps.location.lat(), gps.location.isValid(), 12, 7); // Latitude 1e7 precision floating point
-  // printFloat(gps.location.lng(), gps.location.isValid(), 12, 7); // Longitude 1e7 precision floating point
-
-  // Serial.println(gps.location.lat(),7);
-
+  smartDelay(standard_delay); // 1ms delay for feeding gps object
   if(gps.location.isValid()){
-     // Encode integer and floating point of both lat long , 4 byte each , precision point of 1e7
-    // gps
-    // canMsg1.data[0]; 
-    // canMsg1.data[1]; 
-    // canMsg1.data[2];
-    // canMsg1.data[3];
-    // canMsg1.data[4];
-    // canMsg1.data[5];
-    // canMsg1.data[6];
-    // canMsg1.data[7];
+    // Return type of lat() lng() is 8 byte double each , but the goal here is to cram both message into one CAN frame
+    // Encode integer and floating point of both lat long , 4 byte each , precision point of 1e7
+    
+    float lat = gps.location.lat();
+    float lng = gps.location.lng();
+    
+    unsigned char *sendByteLat = Encode_bytearray(lat);
+    unsigned char *sendByteLng = Encode_bytearray(lng);
+    // float receiveFloat = Decode_bytearray(Packet)
+    byte aa = 0;
+    for(int i = 0;i < sizeof(lat); i++) {
+        aa = sendByteLat[i];
+        Serial.println(aa);
+    }
+    Serial.println()
+    // Serial.println(lat,7);
+    // Serial.println(lng,7);
+ 
+    // Latitude
+    canMsg1.data[0] = sendByteLat[0]; 
+    canMsg1.data[1] = sendByteLat[1]; 
+    canMsg1.data[2] = sendByteLat[2];
+    canMsg1.data[3] = sendByteLat[3];
+    // Longitude
+    canMsg1.data[4] = sendByteLng[4];
+    canMsg1.data[5] = sendByteLng[5];
+    canMsg1.data[6] = sendByteLng[6];
+    canMsg1.data[7] = sendByteLng[7];
+
+    // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
+    mcp2515.sendMessage(&canMsg1);  
+
+    // May add some Acknowledgement functionality
+    /*
+    
+    */
+    
   }
 
-  smartDelay(100);
-  
   // Failure GPS will print the following
   if (millis() > 5000 && gps.charsProcessed() < 10) {
     Serial.println(F("No GPS data received: check wiring"));
-
     // Error Handing of CAN frame
 
   }
-   float f = 13.1234567; // 4 bytes of data (4 memory slots)
-
-    unsigned char *ch;
-    float rev;
-    ch = EncodeFloat(f);
-    rev = DecodeFloat(ch);
-    for (int i = 0; i < sizeof(f); ++i) {
-      Serial.print(ch[i],HEX);
-    }
-    Serial.println();
-    Serial.println(rev,8);
-    
-
 }
 
-
-unsigned char *EncodeFloat(float f) {
+unsigned char *Encode_bytearray(float f) {
     // Use memcpy to copy the bytes of the float into the array
     static unsigned char c[sizeof(f)]; 
     memcpy(c, &f, sizeof(f));
@@ -91,13 +99,12 @@ unsigned char *EncodeFloat(float f) {
     // Now, c[0] to c[3] contain the bytes of the float
     return c; 
 }
-float DecodeFloat(unsigned char* c) {
+float Decode_bytearray(unsigned char* c) {
     float f;
     // Use memcpy to copy the bytes from the array back into the float
     memcpy(&f, c, sizeof(f));
     return f;
 }
-
 
 /* Custom BlinkWithout Delay Code that ensures the gps object is being fed by UART reading on time. and contain read function itself */
 static void smartDelay(unsigned long ms) {
@@ -111,73 +118,3 @@ static void smartDelay(unsigned long ms) {
   } 
   while (millis() - start < ms);
 }
-
-/* Formatting Function */
-// static void printFloat(float val, bool valid, int len, int prec){
-//   if (!valid) {
-//     while (len-- > 1)
-//       Serial.print('*');
-//     Serial.print(' ');
-//   }
-//   else {
-//     Serial.print(val, prec);
-//     int vi = abs((int)val);
-//     int flen = prec + (val < 0.0 ? 2 : 1); // . and -
-//     flen += vi >= 1000 ? 4 : vi >= 100 ? 3 : vi >= 10 ? 2 : 1;
-//     for (int i=flen; i<len; ++i)
-//       Serial.print(' ');
-//   }
-//   smartDelay(0);
-// }
-
-// static void printInt(unsigned long val, bool valid, int len) {
-//   char sz[32] = "*****************";
-//   if (valid)
-//     sprintf(sz, "%ld", val);
-//   sz[len] = 0;
-//   for (int i=strlen(sz); i<len; ++i)
-//     sz[i] = ' ';
-//   if (len > 0) 
-//     sz[len-1] = ' ';
-//   Serial.print(sz);
-//   smartDelay(0);
-// }
-
-// static void printDateTime(TinyGPSDate &d, TinyGPSTime &t) {
-//   if (!d.isValid()) {
-//     Serial.print(F("********** "));
-//   }
-//   else {
-//     char sz[32];
-//     sprintf(sz, "%02d/%02d/%02d ", d.month(), d.day(), d.year());
-//     Serial.print(sz);
-//   }
-  
-//   if (!t.isValid()) {
-//     Serial.print(F("******** "));
-//   }
-//   else {
-//     char sz[32];
-//     sprintf(sz, "%02d:%02d:%02d ", t.hour(), t.minute(), t.second());
-//     Serial.print(sz);
-//   }
-
-//   printInt(d.age(), d.isValid(), 5);
-//   smartDelay(0);
-// }
-
-// static void printStr(const char *str, int len) {
-//   int slen = strlen(str);
-//   for (int i=0; i<len; ++i)
-//     Serial.print(i<slen ? str[i] : ' ');
-//   smartDelay(0);
-// }
-
-
-
-
-
-//Serial.write() vs .print => the difference
-
-
-/* Encode NMEA*/

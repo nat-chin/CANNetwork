@@ -8,11 +8,15 @@
 unsigned long lasttime =0;
 
 //==================================================================================//
-void canSender();
-void canReceiver();
+void canSender(); void canReceiver();
+unsigned char *Encode_bytearray(float f);
+float Decode_bytearray(unsigned char* c);
 
 void setup() {
+
   Serial.begin (115200);
+  // Serial1.begin (115200);
+  // Serial2.begin (115200);
   while (!Serial); // halt if serial port is not available
   Serial.println ("CAN Receiver/Receiver");
   delay(500);
@@ -32,23 +36,51 @@ void setup() {
 
 // Receiving & Record Data to Local SD Card
 
+// #include <ArduinoSTL.h>
+// #include <typeinfo>
+
 void loop() {
+  
   if(millis()-lasttime >= 100){
   // canSender();
   canReceiver();
-
+  // แปลงมันใหเเป็น byte array ก่อน
+  int receivepacket = 229152016610234221;
+  // Return Type is int;
+  unsigned char *packet_array = Encode_bytearray(receivepacket);
+  // unsigned char *sendByte2 = Encode_bytearray(send2);
+  float receiveFloat = Decode_bytearray(packet_array);
+  Serial.println(receiveFloat);
+  
   /*Decode Latitude and Longtitude Data*/
 
   /* Function to Record all data to local SD card in CSV format */
 
   lasttime = millis();
   }
-}
 
+
+}
+/* Sample of Received Bit */
+
+
+unsigned char *Encode_bytearray(float f) {
+    // Use memcpy to copy the bytes of the float into the array
+    static unsigned char c[sizeof(f)]; 
+    memcpy(c, &f, sizeof(f));
+    // Copy to address of array , Copy from address of float , size of float
+    // Now, c[0] to c[3] contain the bytes of the float
+    return c; 
+}
+float Decode_bytearray(unsigned char* c) {
+    float f;
+    // Use memcpy to copy the bytes from the array back into the float
+    memcpy(&f, c, sizeof(f));
+    return f;
+}
 //==================================================================================//
 
 // Sending Acknowledgement Bit (??)
-
 void canSender() {
   // send packet: id is 11 bits, packet can contain up to 8 bytes of data
   Serial.print ("Sending packet ... ");
@@ -76,7 +108,6 @@ void canSender() {
   delay(1000);
 }
 
-//==================================================================================//
 
 void canReceiver() {
   // try to parse packet
@@ -87,10 +118,10 @@ void canReceiver() {
   if (packetSize > 0) {
     Serial.print ("Received ");
 
-    // Extended CAN check
+    // Extended CAN ID check
     if (CAN.packetExtended()) { Serial.print ("extended ");}
     
-
+    /* Check Standard CAN ID */
     Serial.print ("packet with id 0x");
     Serial.print (CAN.packetId(), HEX);
     
@@ -104,7 +135,7 @@ void canReceiver() {
       Serial.print (" Of length: ");
       Serial.println (packetSize);
 
-      // only print packet data for non-RTR packets
+      /* Print out NON-RTR packet */
       while (CAN.available()) {
         // Serial.print ((char) CAN.read()); // some how unable to read the pakcet , given the  right ID and right DLC? , RTR = 0 it is a data!
         Serial.print (CAN.read()); } 

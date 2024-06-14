@@ -1,13 +1,17 @@
 // This node maybe change to PI pico instead of UNO R3
-
 #include "Arduino.h"
-#include <SPI.h>
-#include <mcp2515.h>
-struct can_frame canMsg1; // 1st CAN frame
-struct can_frame canMsg2  // 2nd CAN frame
-MCP2515 mcp2515(10); // Slave select at pin D10
 
-/*  Motor Encoder (Optical) */
+/* mcp2515 init */
+#include <SPI.h>
+#include <mcp2515.h> 
+#define standard_bitrate CAN_500KBPS
+#define standard_delay 100
+MCP2515 mcp2515(10);
+struct can_frame canMsg1; //  1st CAN frame
+struct can_frame canMsg2;  // 2nd CAN frame
+struct can_frame canMsg3;  // 3rd CAN frame
+
+/*  Rotary Encoder (Will change Code to Motor Encoder Later) */
   #define CLK 4 // Input B
   #define DT 5 // Input A
   #define SW 3 // Reset Switch
@@ -28,6 +32,9 @@ MCP2515 mcp2515(10); // Slave select at pin D10
 float* readMPU();  
 void readEncoder(); void resetEncoder(); 
 float readCurrent(); float readVoltage();
+
+unsigned char *Encode_bytearray(float f);
+float Decode_bytearray(unsigned char* c);
 
  
 void setup() { 
@@ -51,13 +58,18 @@ void setup() {
     // Set encoder pins as inputs
     pinMode(CLK,INPUT); pinMode(DT,INPUT); pinMode(SW, INPUT_PULLUP);
 
-	// Read the initial state of CLK
-	lastStateCLK = digitalRead(CLK);
-  attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
+    // Read the initial state of CLK
+    lastStateCLK = digitalRead(CLK);
+    attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
 
-    /*  Write CAN frame into the Buffer   */
-    canMsg1.can_id  = 0x0F7; // 11 bit ID (standard CAN)
-    canMsg1.can_dlc = 8; // 8 byte DLC (Standard CAN Maximum)
+  /*  Set CAN Frame struct. */
+  canMsg1.can_id  = 0x0F5; // 11 bit ID (standard CAN)
+  canMsg1.can_dlc = 8; // 8 byte DLC (Standard CAN Maximum)
+  canMsg2.can_id  = 0x0F6; 
+  canMsg2.can_dlc = 8; 
+  canMsg3.can_id  = 0x0F7; 
+  canMsg3.can_dlc = 8; 
+  
 } 
 
 void loop() { 
@@ -88,12 +100,27 @@ void loop() {
     // readVoltage();
     // readCurrent();
 
-  // Transmit CAN frame out of mcp2515 FIFO Buffer
+  // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
   mcp2515.sendMessage(&canMsg1);  
   // Serial.println("Messages sent");
   lasttime = millis(); // reset timer variable
   }
   
+}
+
+unsigned char *Encode_bytearray(float f) {
+    // Use memcpy to copy the bytes of the float into the array
+    static unsigned char c[sizeof(f)]; 
+    memcpy(c, &f, sizeof(f));
+    // Copy to address of array , Copy from address of float , size of float
+    // Now, c[0] to c[3] contain the bytes of the float
+    return c; 
+}
+float Decode_bytearray(unsigned char* c) {
+    float f;
+    // Use memcpy to copy the bytes from the array back into the float
+    memcpy(&f, c, sizeof(f));
+    return f;
 }
 
 float* readMPU() {
