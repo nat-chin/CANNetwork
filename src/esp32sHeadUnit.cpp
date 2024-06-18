@@ -39,20 +39,43 @@ void setup() {
 // #include <ArduinoSTL.h>
 // #include <typeinfo>
 
+// Now only problem is how to read get full data out of this CAN library??? Huh??? , I don't want to do Serial.parseInt()
+unsigned char message[4];
+
+
 void loop() {
   
   if(millis()-lasttime >= 100){
   // canSender();
   canReceiver();
-  // แปลงมันใหเเป็น byte array ก่อน
-  int receivepacket = 229152016610234221;
-  // Return Type is int;
-  unsigned char *packet_array = Encode_bytearray(receivepacket);
-  // unsigned char *sendByte2 = Encode_bytearray(send2);
-  float receiveFloat = Decode_bytearray(packet_array);
-  Serial.println(receiveFloat);
-  
+  // Only one frame
+  // unsigned char *msgptr = &message[0];
+
   /*Decode Latitude and Longtitude Data*/
+  float receiveFloat = Decode_bytearray(message);
+  Serial.println(receiveFloat,7);
+  Serial.println();
+  /* Confirm 4 bytes message in CAN frame*/
+  for (int i = 0; i < 4; i++) {
+        Serial.print(message[3-i]);
+        Serial.print(',');
+  } Serial.println();
+  for (int i = 0; i < 4; i++) {
+        Serial.print(message[3-i], HEX);
+        Serial.print(',');
+  } Serial.println();
+  
+  
+
+  /* But arbritation table
+  Lat : 0xF1
+  Lng : 0xF2 
+
+  So the order of received message per clock (with delay) is 
+  Lat Lng RPM Accelx , Accely , Accelz , Gyro x , Gyro y , Gyro z
+  */
+
+  
 
   /* Function to Record all data to local SD card in CSV format */
 
@@ -78,7 +101,48 @@ float Decode_bytearray(unsigned char* c) {
     memcpy(&f, c, sizeof(f));
     return f;
 }
+
+
 //==================================================================================//
+
+void canReceiver() {
+  // try to parse packet
+  int packetSize = CAN.parsePacket();
+
+  // received a packet
+  if (packetSize > 0) {
+    Serial.print ("Received ");
+
+    // Extended CAN ID check
+    if (CAN.packetExtended()) { Serial.print ("extended ");}
+    
+    /* Check Standard CAN ID */
+    Serial.print ("packet with id 0x");
+    Serial.print (CAN.packetId(), HEX);
+    
+    // RTR check (if RTR , then RTR bit is 1)
+    if (CAN.packetRtr()) {
+      // Remote transmission request, packet contains no data
+      Serial.print ("RTR ");
+      Serial.print (" with requested length ");
+      Serial.println (CAN.packetDlc());
+    } else {
+      Serial.print (" Of length: ");
+      Serial.println (packetSize);
+
+      /* Print out NON-RTR packet  (read Each byte)*/
+      int i = 0; // set iteration at zero
+      while (CAN.available()) {
+        //  4 iteration
+        // Serial.print ((char) CAN.read()); // some how unable to read the pakcet , given the  right ID and right DLC? , RTR = 0 it is a data!
+        // Serial.print(CAN.read()); 
+        message[i] = CAN.read();  
+        i++;
+        } 
+      // Serial.println();
+    }
+  } 
+}
 
 // Sending Acknowledgement Bit (??)
 void canSender() {
@@ -106,42 +170,6 @@ void canSender() {
   Serial.println ("done");
 
   delay(1000);
-}
-
-
-void canReceiver() {
-  // try to parse packet
-  int packetSize = CAN.parsePacket();
-  Serial.println(packetSize);
-
-  // received a packet
-  if (packetSize > 0) {
-    Serial.print ("Received ");
-
-    // Extended CAN ID check
-    if (CAN.packetExtended()) { Serial.print ("extended ");}
-    
-    /* Check Standard CAN ID */
-    Serial.print ("packet with id 0x");
-    Serial.print (CAN.packetId(), HEX);
-    
-    // RTR check (if RTR , then RTR bit is 1)
-    if (CAN.packetRtr()) {
-      // Remote transmission request, packet contains no data
-      Serial.print ("RTR ");
-      Serial.print (" with requested length ");
-      Serial.println (CAN.packetDlc());
-    } else {
-      Serial.print (" Of length: ");
-      Serial.println (packetSize);
-
-      /* Print out NON-RTR packet */
-      while (CAN.available()) {
-        // Serial.print ((char) CAN.read()); // some how unable to read the pakcet , given the  right ID and right DLC? , RTR = 0 it is a data!
-        Serial.print (CAN.read()); } 
-      Serial.println();
-    }
-  } 
 }
 
 //==================================================================================//

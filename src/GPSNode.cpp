@@ -32,7 +32,7 @@ void setup() {
     mcp2515.setNormalMode();
   /* Set CAN Frame struct.*/
   canMsg1.can_id  = 0x0F1; // 11 bit identifier(standard CAN)
-  canMsg1.can_dlc = 8; // dlc = data length code -> max 8 byte of data
+  canMsg1.can_dlc = 4; // dlc = data length code -> max 8 byte of data
 
 }
 
@@ -42,7 +42,7 @@ float Decode_bytearray(unsigned char* c);
 
 
 void loop() {
-  smartDelay(standard_delay); // 1ms delay for feeding gps object
+  smartDelay(standard_delay); // 100 ms delay for feeding gps object
   if(gps.location.isValid()){
     // Return type of lat() lng() is 8 byte double each , but the goal here is to cram both message into one CAN frame
     // Encode integer and floating point of both lat long , 4 byte each , precision point of 1e7
@@ -50,16 +50,24 @@ void loop() {
     float lat = gps.location.lat();
     float lng = gps.location.lng();
     
+    Serial.print("Latitude (Deg.): ");
+    Serial.println(lat,7);
     unsigned char *sendByteLat = Encode_bytearray(lat);
-    unsigned char *sendByteLng = Encode_bytearray(lng);
-    // float receiveFloat = Decode_bytearray(Packet)
-    byte aa = 0;
-    for(int i = 0;i < sizeof(lat); i++) {
-        aa = sendByteLat[i];
-        Serial.println(aa);
-    }
-    Serial.println()
-    // Serial.println(lat,7);
+    
+
+    for(int i = 0; i < sizeof(lat); i++){
+      Serial.print(sendByteLat[3-i]);
+      Serial.print(',');
+    } 
+    Serial.println();
+
+    for(int i = 0; i < sizeof(lat); i++){
+      Serial.print(sendByteLat[3-i],HEX);
+      Serial.print(',');
+    } 
+    Serial.println();
+
+
     // Serial.println(lng,7);
  
     // Latitude
@@ -68,10 +76,10 @@ void loop() {
     canMsg1.data[2] = sendByteLat[2];
     canMsg1.data[3] = sendByteLat[3];
     // Longitude
-    canMsg1.data[4] = sendByteLng[4];
-    canMsg1.data[5] = sendByteLng[5];
-    canMsg1.data[6] = sendByteLng[6];
-    canMsg1.data[7] = sendByteLng[7];
+    // canMsg1.data[4] = sendByteLng[4];
+    // canMsg1.data[5] = sendByteLng[5];
+    // canMsg1.data[6] = sendByteLng[6];
+    // canMsg1.data[7] = sendByteLng[7];
 
     // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
     mcp2515.sendMessage(&canMsg1);  
