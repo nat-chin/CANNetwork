@@ -1,16 +1,23 @@
 //==================================================================================//
-#include "Wire.h"
+// #include "Wire.h"
 #include <Arduino.h>
 #include <CAN.h>
 
 #define TX_GPIO_NUM   23  // Connects to CTX
 #define RX_GPIO_NUM   22  // Connects to CRX
+#define standard_bitrate 500E3
+#define standard_delay 100
+#define standard_dlc 4
 unsigned long lasttime =0;
 
 //==================================================================================//
 void canSender(); void canReceiver();
-unsigned char *Encode_bytearray(float f);
-float Decode_bytearray(unsigned char* c);
+unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
+float readCurrent(); float readVoltage();
+
+/* Voltage and Current Sense from Battery */
+  #define AmpsPin A11
+  #define VoltsPin A0
 
 void setup() {
 
@@ -45,17 +52,37 @@ unsigned char message[4];
 
 void loop() {
   
-  if(millis()-lasttime >= 100){
-  // canSender();
+  if(millis()-lasttime >= standard_delay){
+  
   canReceiver();
-  // Only one frame
-  // unsigned char *msgptr = &message[0];
+  // Read One frame Per Iteration
+    /* Bit arbritation Order (UNO)
+  From GPS Node
+  Lat : 0xF1
+  Lng : 0xF2 
 
-  /*Decode Latitude and Longtitude Data*/
+  From Motor Controller Node
+  RPM : 0xF3
+  Accelx  : 0xF4
+  Accely  : 0xF5
+  AccelZ  : 0xF6
+  GyroX   : 0xF7
+  GyroY   : 0xF8
+  GyroZ   : 0xF9
+
+  From This head unit
+  Monitor : Nominal Voltage of Battery the voltage (If possible Calculate for SOC and SOH )
+            Current (Discharge) of Battery to Motor
+
+  So the order of received message in 500 Kbps (with 100ms timer delay) (Sampling Rate) is 
+  Lat Lng RPM Accelx , Accely , Accelz , Gyro x , Gyro y , Gyro z
+  */
+
+  /*Decode Message back to 4 byte float */
   float receiveFloat = Decode_bytearray(message);
   Serial.println(receiveFloat,7);
-  Serial.println();
-  /* Confirm 4 bytes message in CAN frame*/
+
+  /* Confirm 4 bytes message each CAN frame*/
   for (int i = 0; i < 4; i++) {
         Serial.print(message[3-i]);
         Serial.print(',');
@@ -64,20 +91,14 @@ void loop() {
         Serial.print(message[3-i], HEX);
         Serial.print(',');
   } Serial.println();
-  
-  
+  Serial.println();
 
-  /* But arbritation table
-  Lat : 0xF1
-  Lng : 0xF2 
 
-  So the order of received message per clock (with delay) is 
-  Lat Lng RPM Accelx , Accely , Accelz , Gyro x , Gyro y , Gyro z
-  */
+  /* Acknowledgement Frame */
+  // canSender();
 
-  
 
-  /* Function to Record all data to local SD card in CSV format */
+  /* Function to Record all data to local SD card in CSV format (Optional) */
 
   lasttime = millis();
   }
@@ -106,13 +127,11 @@ float Decode_bytearray(unsigned char* c) {
 //==================================================================================//
 
 void canReceiver() {
-  // try to parse packet
-  int packetSize = CAN.parsePacket();
+  int packetSize = CAN.parsePacket(); // Parse packet
 
   // received a packet
   if (packetSize > 0) {
     Serial.print ("Received ");
-
     // Extended CAN ID check
     if (CAN.packetExtended()) { Serial.print ("extended ");}
     
@@ -127,14 +146,14 @@ void canReceiver() {
       Serial.print (" with requested length ");
       Serial.println (CAN.packetDlc());
     } else {
+
+      /* Print out NON-RTR packet  (read Each byte)*/
       Serial.print (" Of length: ");
       Serial.println (packetSize);
 
-      /* Print out NON-RTR packet  (read Each byte)*/
       int i = 0; // set iteration at zero
       while (CAN.available()) {
-        //  4 iteration
-        // Serial.print ((char) CAN.read()); // some how unable to read the pakcet , given the  right ID and right DLC? , RTR = 0 it is a data!
+        // This system BUS is only 4 byte data , so 4 iteration
         // Serial.print(CAN.read()); 
         message[i] = CAN.read();  
         i++;
@@ -173,3 +192,34 @@ void canSender() {
 }
 
 //==================================================================================//
+
+
+
+
+
+
+// float readCurrent() {
+//   /*---------Current Calculation--------------*/
+//   float voltage_offset = 5000.0/2.0; // in mV Can be other value if we more voltage is applied in Series measurement
+//   float Vhall = 0.0; // Induced voltage from Hall effect sensor
+//   float mVperAmp = 100.0; // Sensitivity from sensor mV/A (20A model variant)
+//   float current = 0.0;
+
+//   Vhall = analogRead(AmpsPin)* 5000.0 / 1023.0; 
+//   current = ((Vhall - voltage_offset) / mVperAmp); 
+//   // The offset when Current sensor ACS712 sense no current is Vcc/2 , and the measured Vhall is with respect to that point , we need to subtract that out 
+//   return current;
+// }
+
+// float readVoltage() { 
+//   float Vsignal = 0.0; // Voltage from divider
+//   float Vin = 0.0; // Actual voltage measured , which is voltage across our divider circuit
+//   float dividerRatio = (7500.0/(30000.0+7500.0)); // Voltage divider Calculation (R2/R1+R2) unit ohms
+//   float ref_voltage = 5.0; // Default Analog Reference Voltage of Arduino UNO R3 (reference)
+
+//   // Convert the read value with the scale of 5/1023 since ADC produce digital voltage that is pulled from MCU power rail, not the measured voltage
+//   Vsignal = analogRead(VoltsPin) * (ref_voltage/ 1023.0); 
+//   // The read value will be 1/5 of the measured voltage, Revert back to original voltage we divide by the Divider ratio , or times 5
+//   Vin = Vsignal / dividerRatio; 
+//   return Vin;
+// }

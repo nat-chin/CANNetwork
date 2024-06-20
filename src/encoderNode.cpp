@@ -6,10 +6,10 @@
 #include <mcp2515.h> 
 #define standard_bitrate CAN_500KBPS
 #define standard_delay 100
+#define standard_dlc 4
 MCP2515 mcp2515(10);
-struct can_frame canMsg1; //  1st CAN frame
-struct can_frame canMsg2;  // 2nd CAN frame
-struct can_frame canMsg3;  // 3rd CAN frame
+struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMsg7;  
+//  1-7 CAN frame
 
 /*  Rotary Encoder (Will change Code to Motor Encoder Later) */
   #define CLK 4 // Input B
@@ -24,17 +24,10 @@ struct can_frame canMsg3;  // 3rd CAN frame
   #include <MPU6050_light.h>
   MPU6050 mpu(Wire); unsigned long lasttime = 0;
 
-/* Voltage and Current Sense from Battery */
-  #define AmpsPin A2
-  #define VoltsPin A0
-
 // --------------------------------------------------------//
 float* readMPU();  
 void readEncoder(); void resetEncoder(); 
-float readCurrent(); float readVoltage();
-
-unsigned char *Encode_bytearray(float f);
-float Decode_bytearray(unsigned char* c);
+unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
 
  
 void setup() { 
@@ -63,13 +56,15 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
 
   /*  Set CAN Frame struct. */
-  canMsg1.can_id  = 0x0F5; // 11 bit ID (standard CAN)
-  canMsg1.can_dlc = 8; // 8 byte DLC (Standard CAN Maximum)
-  canMsg2.can_id  = 0x0F6; 
-  canMsg2.can_dlc = 8; 
-  canMsg3.can_id  = 0x0F7; 
-  canMsg3.can_dlc = 8; 
-  
+  canMsg1.can_id  = 0x0F3; // 11 bit ID (standard CAN)
+  canMsg2.can_id  = 0x0F4; 
+  canMsg3.can_id  = 0x0F5; 
+  canMsg4.can_id  = 0x0F6; 
+  canMsg5.can_id  = 0x0F7; 
+  canMsg6.can_id  = 0x0F8; 
+  canMsg7.can_id  = 0x0F9; 
+  canMsg1.can_dlc = standard_dlc;
+  canMsg2.can_dlc = canMsg3.can_dlc = canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = canMsg7.can_dlc = standard_dlc; 
 } 
 
 void loop() { 
@@ -77,33 +72,67 @@ void loop() {
   float* mpuData = readMPU();
   readEncoder();
   if(millis()-lasttime >= 100){
-  Serial.print(currentDir);
-  Serial.println(counter);
-  canMsg1.data[0] = mpuData[0];   // Accel X
-  canMsg1.data[1] = mpuData[1];   // Accel Y
-  canMsg1.data[2] = mpuData[2] ;  // Accel Z
-  canMsg1.data[3] = mpuData[3];   // GyRo X
-  canMsg1.data[4] = mpuData[4];   // GyRo Y
-  canMsg1.data[5] = mpuData[5];   // GyRo Z
-  canMsg1.data[6] = abs(counter); // Encoded step (Only positive value < 255 , since it is 1 byte )
-  canMsg1.data[7] = currentDir;   // Encoding Direction
+    Serial.print(currentDir);
+    Serial.println(counter);
 
-  canMsg2.data[0] = mpuData[0];   // Battery Nominal Voltage
-  canMsg2.data[1] = mpuData[1];   // Discharge Current
-  canMsg2.data[2] = mpuData[2] ;  // Temperature of Motor
-  canMsg2.data[3] = mpuData[3];   // GyRo X
-  canMsg2.data[4] = mpuData[4];   // GyRo Y
-  canMsg2.data[5] = mpuData[5];   // GyRo Z
-  canMsg2.data[6] = abs(counter);      // Encoded step (Only positive value < 255 , since it is 1 byte )
-  canMsg2.data[7] = currentDir;   // Encoding Direction
-  //Might need Extended CAN to cram more message
-    // readVoltage();
-    // readCurrent();
+    // RPM 1st Frame (The direction is included in the last bit) (Though for optical Encoder this might not be possible)
+    unsigned char* sendByte_RPM = Encode_bytearray(counter);  
+    for(int i=0 ; i < standard_dlc  ; i++){
+      canMsg1.data[i] = sendByte_RPM[i];
+    }
 
-  // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
-  mcp2515.sendMessage(&canMsg1);  
-  // Serial.println("Messages sent");
-  lasttime = millis(); // reset timer variable
+    // Accel X 2nd Frame
+    unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
+    for(int i=0 ; i < standard_dlc ; i++){
+      canMsg2.data[i] = sendByte_Accelx[i];
+    }
+
+    // Accel Y 3rd Frame
+    unsigned char* sendByte_Accely = Encode_bytearray(mpuData[1]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg3.data[i] = sendByte_Accely[i];
+    }
+
+
+    // Accel Z 4th Frame
+    unsigned char* sendByte_Accelz = Encode_bytearray(mpuData[2]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg4.data[i] = sendByte_Accelz[i];
+    }
+
+    // Gyro X 5th Frame
+    unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg5.data[i] = sendByte_Gyrox[i];
+    }
+
+    // Gyro Y 6th Frame
+    unsigned char* sendByte_Gyroy = Encode_bytearray(mpuData[4]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg6.data[i] = sendByte_Gyroy[i];
+    }
+
+    // Gyro Z 7th Frame
+    unsigned char* sendByte_Gyroz = Encode_bytearray(mpuData[5]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg7.data[i] = sendByte_Gyroz[i];
+    }
+
+    // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
+    // mcp2515.sendMessage(&canMsg1);  
+    mcp2515.sendMessage(&canMsg2);  
+    mcp2515.sendMessage(&canMsg3);  
+    mcp2515.sendMessage(&canMsg4);  
+    mcp2515.sendMessage(&canMsg5);  
+    mcp2515.sendMessage(&canMsg6);  
+    mcp2515.sendMessage(&canMsg7);    
+    //Might need Extended CAN to cram more message
+      // readVoltage();
+      // readCurrent();
+
+  
+    // Serial.println("Messages sent");
+    lasttime = millis(); // reset timer variable
   }
   
 }
@@ -137,8 +166,7 @@ float* readMPU() {
   return imuData; // Return the array of IMU data
 }
 
-
-// ชิบหาย ละ ข้อมูลที่มัน return มาจาก IMU lib แม่งเป็น float หมดเลย 4 byte ไอสัส
+// Rotary Encoder need debouncing , as spinning to fast generate noise
 
 void readEncoder() {
         
@@ -170,30 +198,6 @@ void resetEncoder(){
 }
 
 
-float readCurrent() {
-  /*---------Current Calculation--------------*/
-  float voltage_offset = 5000.0/2.0; // in mV Can be other value if we more voltage is applied in Series measurement
-  float Vhall = 0.0; // Induced voltage from Hall effect sensor
-  float mVperAmp = 100.0; // Sensitivity from sensor mV/A (20A model variant)
-  float current = 0.0;
 
-  Vhall = analogRead(AmpsPin)* 5000.0 / 1023.0; 
-  current = ((Vhall - voltage_offset) / mVperAmp); 
-  // The offset when Current sensor ACS712 sense no current is Vcc/2 , and the measured Vhall is with respect to that point , we need to subtract that out 
-  return current;
-}
-
-float readVoltage() { 
-  float Vsignal = 0.0; // Voltage from divider
-  float Vin = 0.0; // Actual voltage measured , which is voltage across our divider circuit
-  float dividerRatio = (7500.0/(30000.0+7500.0)); // Voltage divider Calculation (R2/R1+R2) unit ohms
-  float ref_voltage = 5.0; // Default Analog Reference Voltage of Arduino UNO R3 (reference)
-
-  // Convert the read value with the scale of 5/1023 since ADC produce digital voltage that is pulled from MCU power rail, not the measured voltage
-  Vsignal = analogRead(VoltsPin) * (ref_voltage/ 1023.0); 
-  // The read value will be 1/5 of the measured voltage, Revert back to original voltage we divide by the Divider ratio , or times 5
-  Vin = Vsignal / dividerRatio; 
-  return Vin;
-}
 
 
