@@ -3,7 +3,7 @@
 #include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
 
-static const int TXPin = 4, RXPin = 5;
+static const int TXPin = 3, RXPin = 4;
 static const uint32_t GPSBaud = 9600;
 
 // The TinyGPSPlus object
@@ -15,10 +15,10 @@ SoftwareSerial ss(RXPin, TXPin);
 /* mcp2515 init */
 #include <SPI.h>
 #include <mcp2515.h> 
-#define standard_bitrate CAN_500KBPS
+#define standard_bitrate CAN_125KBPS
 #define standard_delay 100
 #define standard_dlc 4
-MCP2515 mcp2515(10);
+MCP2515 mcp2515(10, MCP_8MHZ);
 struct can_frame canMsg1; // 1st CAN frame
 struct can_frame canMsg2;  // 2nd CAN frame
 
@@ -33,9 +33,9 @@ void setup() {
     mcp2515.setNormalMode();
   /* Set CAN Frame struct.*/
   canMsg1.can_id  = 0x0F1; // 11 bit identifier(standard CAN)
-  canMsg1.can_dlc = 4; // dlc = data length code -> max 8 byte of data
+  canMsg1.can_dlc = standard_dlc; // dlc = data length code -> max 8 byte of data
   canMsg2.can_id  = 0x0F2; // 11 bit identifier(standard CAN)
-  canMsg2.can_dlc = 4; // dlc = data length code -> max 8 byte of data
+  canMsg2.can_dlc = standard_dlc; // dlc = data length code -> max 8 byte of data
 
 
 }
@@ -60,13 +60,13 @@ void loop() {
     /* Display result  */
       Serial.print("Latitude (Deg.): ");
       Serial.println(lat,7);
-      for(int i = 0; i < sizeof(lat); i++){
+      for(int i = 0; i < standard_dlc; i++){
         Serial.print(sendByteLat[3-i]);
         Serial.print(',');
       } 
       Serial.println();
 
-      for(int i = 0; i < sizeof(lat); i++){
+      for(int i = 0; i < standard_dlc; i++){
         Serial.print(sendByteLat[3-i],HEX);
         Serial.print(',');
       } 
@@ -76,14 +76,14 @@ void loop() {
     for(int i = 0; i< standard_dlc; i++){
       canMsg1.data[i] = sendByteLat[i];
     }
-    // Longitude (2nd frame)
-    for(int i = 0; i< standard_dlc; i++){
-      canMsg2.data[i] = sendByteLng[i];
-    }
+    // // Longitude (2nd frame)
+    // for(int i = 0; i< standard_dlc; i++){
+    //   canMsg2.data[i] = sendByteLng[i];
+    // }
 
     // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
     mcp2515.sendMessage(&canMsg1);
-    mcp2515.sendMessage(&canMsg2);   
+    // mcp2515.sendMessage(&canMsg2);   
 
     // May add some Acknowledgement functionality
     /*

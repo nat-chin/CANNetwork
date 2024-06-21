@@ -2,10 +2,15 @@
 // #include "Wire.h"
 #include <Arduino.h>
 #include <CAN.h>
+// #include <esp32-hal.h>
+extern "C"{
+  #include <driver/twai.h>
+}
+
 
 #define TX_GPIO_NUM   23  // Connects to CTX
 #define RX_GPIO_NUM   22  // Connects to CRX
-#define standard_bitrate 500E3
+#define standard_bitrate 125E3
 #define standard_delay 100
 #define standard_dlc 4
 unsigned long lasttime =0;
@@ -27,7 +32,7 @@ void setup() {
   while (!Serial); // halt if serial port is not available
   Serial.println ("CAN Receiver/Receiver");
   delay(500);
-
+  
   // Set the pins
   CAN.setPins (RX_GPIO_NUM, TX_GPIO_NUM);
 
@@ -53,57 +58,57 @@ unsigned char message[4];
 void loop() {
   
   if(millis()-lasttime >= standard_delay){
-  
-  canReceiver();
-  // Read One frame Per Iteration
-    /* Bit arbritation Order (UNO)
-  From GPS Node
-  Lat : 0xF1
-  Lng : 0xF2 
+    canReceiver();
+    // Read One frame Per Iteration
+      /* Bit arbritation Order (UNO)
+    From GPS Node
+    Lat : 0xF1
+    Lng : 0xF2 
 
-  From Motor Controller Node
-  RPM : 0xF3
-  Accelx  : 0xF4
-  Accely  : 0xF5
-  AccelZ  : 0xF6
-  GyroX   : 0xF7
-  GyroY   : 0xF8
-  GyroZ   : 0xF9
+    From Motor Controller Node
+    RPM : 0xF3
+    Accelx  : 0xF4
+    Accely  : 0xF5
+    AccelZ  : 0xF6
+    GyroX   : 0xF7
+    GyroY   : 0xF8
+    GyroZ   : 0xF9
 
-  From This head unit
-  Monitor : Nominal Voltage of Battery the voltage (If possible Calculate for SOC and SOH )
-            Current (Discharge) of Battery to Motor
+    From This head unit
+    Monitor : Nominal Voltage of Battery the voltage (If possible Calculate for SOC and SOH )
+              Current (Discharge) of Battery to Motor
 
-  So the order of received message in 500 Kbps (with 100ms timer delay) (Sampling Rate) is 
-  Lat Lng RPM Accelx , Accely , Accelz , Gyro x , Gyro y , Gyro z
-  */
+    So the order of received message in 500 Kbps (with 100ms timer delay) (Sampling Rate) is 
+    Lat Lng RPM Accelx , Accely , Accelz , Gyro x , Gyro y , Gyro z
+    */
 
-  /*Decode Message back to 4 byte float */
-  float receiveFloat = Decode_bytearray(message);
-  Serial.println(receiveFloat,7);
+    /*Decode Message back to 4 byte float */
+    float receiveFloat = Decode_bytearray(message);
+    Serial.println(receiveFloat,7);
 
-  /* Confirm 4 bytes message each CAN frame*/
-  for (int i = 0; i < 4; i++) {
-        Serial.print(message[3-i]);
-        Serial.print(',');
-  } Serial.println();
-  for (int i = 0; i < 4; i++) {
-        Serial.print(message[3-i], HEX);
-        Serial.print(',');
-  } Serial.println();
-  Serial.println();
+    /* Confirm 4 bytes message each CAN frame*/
+    for (int i = 0; i < 4; i++) {
+      Serial.print(message[3-i]);
+      Serial.print(',');
+    } Serial.println();
 
+    for (int i = 0; i < 4; i++) {
+      Serial.print(message[3-i], HEX);
+      Serial.print(',');
+    } Serial.println();
 
-  /* Acknowledgement Frame */
-  // canSender();
+    Serial.println();
 
 
-  /* Function to Record all data to local SD card in CSV format (Optional) */
+    /* Acknowledgement Frame */
+    // canSender();
 
-  lasttime = millis();
+
+    /* Function to Record all data to local SD card in CSV format (Optional) */
+
+    lasttime = millis();
   }
-
-
+ 
 }
 /* Sample of Received Bit */
 
@@ -165,35 +170,23 @@ void canReceiver() {
 
 // Sending Acknowledgement Bit (??)
 void canSender() {
-  // send packet: id is 11 bits, packet can contain up to 8 bytes of data
   Serial.print ("Sending packet ... ");
-
-  CAN.beginPacket (0x12);  //sets the ID and clears the transmit buffer
-  // CAN.beginExtendedPacket(0xabcdef);
-  CAN.write ('1'); //write data to buffer. data is not sent until endPacket() is called.
-  CAN.write ('2');
-  CAN.write ('3');
-  CAN.write ('4');
-  CAN.write ('5');
-  CAN.write ('6');
-  CAN.write ('7');
-  CAN.write ('8');
-  // 8 byte data frame
-  CAN.endPacket();
+  // CAN.beginPacket (0x12);  //sets the ID and clears the transmit buffer
+  // // CAN.beginExtendedPacket(0xabcdef);
+  // CAN.write ('1'); //write data to buffer. data is not sent until endPacket() is called.
+  // CAN.endPacket();
 
   //RTR packet with a requested data length
   // RTR sends empty packet and request some data length back
-  CAN.beginPacket (0x12, 3, true);
+  CAN.beginPacket (0x12, 0, true);
   CAN.endPacket();
 
   Serial.println ("done");
 
-  delay(1000);
+  // delay(1000);
 }
 
 //==================================================================================//
-
-
 
 
 

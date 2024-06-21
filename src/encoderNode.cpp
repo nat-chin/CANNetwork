@@ -4,10 +4,10 @@
 /* mcp2515 init */
 #include <SPI.h>
 #include <mcp2515.h> 
-#define standard_bitrate CAN_500KBPS
+#define standard_bitrate CAN_125KBPS
 #define standard_delay 100
 #define standard_dlc 4
-MCP2515 mcp2515(10);
+MCP2515 mcp2515(10,MCP_8MHZ);
 struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMsg7;  
 //  1-7 CAN frame
 
@@ -15,7 +15,7 @@ struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMs
   #define CLK 4 // Input B
   #define DT 5 // Input A
   #define SW 3 // Reset Switch
-  int counter = 0;
+  float counter = 0;
   int currentStateCLK; int lastStateCLK;
   char currentDir = ' '; // Consider CW as +
 
@@ -31,7 +31,7 @@ unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* 
 
  
 void setup() { 
-  Serial.begin (9600);
+  Serial.begin (115200);
   Wire.begin(); // join I2C bus (IMu is I2C COM)
 
   /*  mcp2515 init  */
@@ -56,8 +56,8 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
 
   /*  Set CAN Frame struct. */
-  canMsg1.can_id  = 0x0F3; // 11 bit ID (standard CAN)
-  canMsg2.can_id  = 0x0F4; 
+  canMsg1.can_id  = 0x100; // 11 bit ID (standard CAN)
+  canMsg2.can_id  = 0x200; 
   canMsg3.can_id  = 0x0F5; 
   canMsg4.can_id  = 0x0F6; 
   canMsg5.can_id  = 0x0F7; 
@@ -71,15 +71,25 @@ void loop() {
   
   float* mpuData = readMPU();
   readEncoder();
-  if(millis()-lasttime >= 100){
-    Serial.print(currentDir);
-    Serial.println(counter);
 
+  //Might need Extended CAN to cram more message
+  // readVoltage();
+  // readCurrent();
+    
+  if(millis()-lasttime >= standard_delay){
+    // Serial.println(counter);
     // RPM 1st Frame (The direction is included in the last bit) (Though for optical Encoder this might not be possible)
     unsigned char* sendByte_RPM = Encode_bytearray(counter);  
+
+    // RPM 1st frame
     for(int i=0 ; i < standard_dlc  ; i++){
       canMsg1.data[i] = sendByte_RPM[i];
-    }
+      
+      Serial.print(canMsg1.data[i], HEX);
+      Serial.print(',');
+    } Serial.println();
+    
+    
 
     // Accel X 2nd Frame
     unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
@@ -87,50 +97,50 @@ void loop() {
       canMsg2.data[i] = sendByte_Accelx[i];
     }
 
-    // Accel Y 3rd Frame
-    unsigned char* sendByte_Accely = Encode_bytearray(mpuData[1]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg3.data[i] = sendByte_Accely[i];
-    }
+    mcp2515.sendMessage(&canMsg1);
+
+    mcp2515.sendMessage(&canMsg2); 
+    
+
+    // // Accel Y 3rd Frame
+    // unsigned char* sendByte_Accely = Encode_bytearray(mpuData[1]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg3.data[i] = sendByte_Accely[i];
+    // }
 
 
-    // Accel Z 4th Frame
-    unsigned char* sendByte_Accelz = Encode_bytearray(mpuData[2]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg4.data[i] = sendByte_Accelz[i];
-    }
+    // // Accel Z 4th Frame
+    // unsigned char* sendByte_Accelz = Encode_bytearray(mpuData[2]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg4.data[i] = sendByte_Accelz[i];
+    // }
 
-    // Gyro X 5th Frame
-    unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg5.data[i] = sendByte_Gyrox[i];
-    }
+    // // Gyro X 5th Frame
+    // unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg5.data[i] = sendByte_Gyrox[i];
+    // }
 
-    // Gyro Y 6th Frame
-    unsigned char* sendByte_Gyroy = Encode_bytearray(mpuData[4]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg6.data[i] = sendByte_Gyroy[i];
-    }
+    // // Gyro Y 6th Frame
+    // unsigned char* sendByte_Gyroy = Encode_bytearray(mpuData[4]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg6.data[i] = sendByte_Gyroy[i];
+    // }
 
-    // Gyro Z 7th Frame
-    unsigned char* sendByte_Gyroz = Encode_bytearray(mpuData[5]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg7.data[i] = sendByte_Gyroz[i];
-    }
+    // // Gyro Z 7th Frame
+    // unsigned char* sendByte_Gyroz = Encode_bytearray(mpuData[5]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg7.data[i] = sendByte_Gyroz[i];
+    // }
 
     // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
-    // mcp2515.sendMessage(&canMsg1);  
-    mcp2515.sendMessage(&canMsg2);  
-    mcp2515.sendMessage(&canMsg3);  
-    mcp2515.sendMessage(&canMsg4);  
-    mcp2515.sendMessage(&canMsg5);  
-    mcp2515.sendMessage(&canMsg6);  
-    mcp2515.sendMessage(&canMsg7);    
-    //Might need Extended CAN to cram more message
-      // readVoltage();
-      // readCurrent();
-
-  
+    
+     
+    // mcp2515.sendMessage(&canMsg3);  
+    // mcp2515.sendMessage(&canMsg4);  
+    // mcp2515.sendMessage(&canMsg5);  
+    // mcp2515.sendMessage(&canMsg6);  
+    // mcp2515.sendMessage(&canMsg7);    
     // Serial.println("Messages sent");
     lasttime = millis(); // reset timer variable
   }
