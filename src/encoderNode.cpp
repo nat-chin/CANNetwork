@@ -37,7 +37,7 @@ void setup() {
   /*  mcp2515 init  */
     while (!Serial); // halt communication if Uart Serial port isn't available
     mcp2515.reset();
-    mcp2515.setBitrate(CAN_500KBPS); //Set Bit rate to 500KBPS (Need to match with target device)
+    mcp2515.setBitrate(CAN_125KBPS); //Set Bit rate to 500KBPS (Need to match with target device)
     mcp2515.setNormalMode();
 
   /*  IMU init  */
@@ -58,19 +58,40 @@ void setup() {
   /*  Set CAN Frame struct. */
   canMsg1.can_id  = 0x100; // 11 bit ID (standard CAN)
   canMsg2.can_id  = 0x200; 
-  canMsg3.can_id  = 0x0F5; 
-  canMsg4.can_id  = 0x0F6; 
-  canMsg5.can_id  = 0x0F7; 
-  canMsg6.can_id  = 0x0F8; 
-  canMsg7.can_id  = 0x0F9; 
-  canMsg1.can_dlc = standard_dlc;
-  canMsg2.can_dlc = canMsg3.can_dlc = canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = canMsg7.can_dlc = standard_dlc; 
+  // canMsg3.can_id  = 0x0F5; 
+  // canMsg4.can_id  = 0x0F6; 
+  // canMsg5.can_id  = 0x0F7; 
+  // canMsg6.can_id  = 0x0F8; 
+  // canMsg7.can_id  = 0x0F9; 
+  // canMsg1.can_dlc = canMsg2.can_dlc =  standard_dlc;
+  // canMsg3.can_dlc = canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = canMsg7.can_dlc = standard_dlc; 
+    // canMsg1.can_id  = 0x0F6;
+  canMsg1.can_dlc = 8;
+  canMsg1.data[0] = 0x8E;
+  canMsg1.data[1] = 0x87;
+  canMsg1.data[2] = 0x32;
+  canMsg1.data[3] = 0xFA;
+  canMsg1.data[4] = 0x26;
+  canMsg1.data[5] = 0x8E;
+  canMsg1.data[6] = 0xBE;
+  canMsg1.data[7] = 0x86;
+
+  // canMsg2.can_id  = 0x036;
+  canMsg2.can_dlc = 8;
+  canMsg2.data[0] = 0x0E;
+  canMsg2.data[1] = 0x00;
+  canMsg2.data[2] = 0x00;
+  canMsg2.data[3] = 0x08;
+  canMsg2.data[4] = 0x01;
+  canMsg2.data[5] = 0x00;
+  canMsg2.data[6] = 0x00;
+  canMsg2.data[7] = 0xA0;
 } 
 
 void loop() { 
   
-  float* mpuData = readMPU();
-  readEncoder();
+  // float* mpuData = readMPU();
+  // readEncoder();
 
   //Might need Extended CAN to cram more message
   // readVoltage();
@@ -79,25 +100,26 @@ void loop() {
   if(millis()-lasttime >= standard_delay){
     // Serial.println(counter);
     // RPM 1st Frame (The direction is included in the last bit) (Though for optical Encoder this might not be possible)
-    unsigned char* sendByte_RPM = Encode_bytearray(counter);  
+    // unsigned char* sendByte_RPM = Encode_bytearray(counter);  
 
-    // RPM 1st frame
-    for(int i=0 ; i < standard_dlc  ; i++){
-      canMsg1.data[i] = sendByte_RPM[i];
+    // // RPM 1st frame
+    // for(int i=0 ; i < standard_dlc  ; i++){
+    //   canMsg1.data[i] = sendByte_RPM[i];
       
-      Serial.print(canMsg1.data[i], HEX);
-      Serial.print(',');
-    } Serial.println();
+    //   Serial.print(canMsg1.data[i], HEX);
+    //   Serial.print(',');
+    // } Serial.println();
     
     
 
-    // Accel X 2nd Frame
-    unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
-    for(int i=0 ; i < standard_dlc ; i++){
-      canMsg2.data[i] = sendByte_Accelx[i];
-    }
+    // // Accel X 2nd Frame
+    // unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
+    // for(int i=0 ; i < standard_dlc ; i++){
+    //   canMsg2.data[i] = sendByte_Accelx[i];
+    // }
 
     mcp2515.sendMessage(&canMsg1);
+    delay(100);
 
     mcp2515.sendMessage(&canMsg2); 
     

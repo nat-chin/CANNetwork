@@ -3,9 +3,9 @@
 #include <Arduino.h>
 #include <CAN.h>
 // #include <esp32-hal.h>
-extern "C"{
-  #include <driver/twai.h>
-}
+// extern "C"{
+//   #include <driver/twai.h>
+// }
 
 
 #define TX_GPIO_NUM   23  // Connects to CTX
@@ -37,7 +37,7 @@ void setup() {
   CAN.setPins (RX_GPIO_NUM, TX_GPIO_NUM);
 
   // start the CAN bus at 500 kbps , E3 indicates 10^3 or kilos
-  if (!CAN.begin (500E3)) {
+  if (!CAN.begin (125E3)) {
     Serial.println ("Starting CAN failed!");
     while (true);
   }
@@ -83,21 +83,21 @@ void loop() {
     */
 
     /*Decode Message back to 4 byte float */
-    float receiveFloat = Decode_bytearray(message);
-    Serial.println(receiveFloat,7);
+    // float receiveFloat = Decode_bytearray(message);
+    // Serial.println(receiveFloat,7);
 
-    /* Confirm 4 bytes message each CAN frame*/
-    for (int i = 0; i < 4; i++) {
-      Serial.print(message[3-i]);
-      Serial.print(',');
-    } Serial.println();
+    // /* Confirm 4 bytes message each CAN frame*/
+    // for (int i = 0; i < 4; i++) {
+    //   Serial.print(message[3-i]);
+    //   Serial.print(',');
+    // } Serial.println();
 
-    for (int i = 0; i < 4; i++) {
-      Serial.print(message[3-i], HEX);
-      Serial.print(',');
-    } Serial.println();
+    // for (int i = 0; i < 4; i++) {
+    //   Serial.print(message[3-i], HEX);
+    //   Serial.print(',');
+    // } Serial.println();
 
-    Serial.println();
+    // Serial.println();
 
 
     /* Acknowledgement Frame */
@@ -156,14 +156,14 @@ void canReceiver() {
       Serial.print (" Of length: ");
       Serial.println (packetSize);
 
-      int i = 0; // set iteration at zero
+      // int i = 0; // set iteration at zero
       while (CAN.available()) {
         // This system BUS is only 4 byte data , so 4 iteration
-        // Serial.print(CAN.read()); 
-        message[i] = CAN.read();  
-        i++;
+        Serial.print(CAN.read(),HEX); 
+        // message[i] = CAN.read();  
+        // i++;
         } 
-      // Serial.println();
+      Serial.println();
     }
   } 
 }
