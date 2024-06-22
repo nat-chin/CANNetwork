@@ -5,10 +5,10 @@
 #include <SPI.h>
 #include <mcp2515.h> 
 #define standard_bitrate CAN_125KBPS
-#define standard_delay 100
+#define standard_delay 10
 #define standard_dlc 4
 MCP2515 mcp2515(10,MCP_8MHZ);
-struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMsg7;  
+struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMsg7 , canMsg8 , canMsg9;  
 //  1-7 CAN frame
 
 /*  Rotary Encoder (Will change Code to Motor Encoder Later) */
@@ -36,136 +36,78 @@ void setup() {
 
   /*  mcp2515 init  */
     while (!Serial); // halt communication if Uart Serial port isn't available
+    delay(500);
     mcp2515.reset();
-    mcp2515.setBitrate(CAN_125KBPS); //Set Bit rate to 500KBPS (Need to match with target device)
+    mcp2515.setBitrate(standard_bitrate); //Set Bit rate to 500KBPS (Need to match with target device)
     mcp2515.setNormalMode();
 
-  /*  IMU init  */
-    mpu.begin(); // initialize mpu instance
-    Serial.println(F("Calculating gyro offset, so do not move MPU6050"));
-    delay(500);
-    mpu.calcOffsets(); // Calibrate both gyro and acc offset 
-    Serial.println("Done: \n");
+  /*  Set CAN Frame format -> Simulate 9 message from Sensors */
+  canMsg1.can_id  = 0x10; // 11 bit ID (standard CAN)
+  canMsg2.can_id  = 0x20; 
+  canMsg3.can_id  = 0x30; 
+  canMsg4.can_id  = 0x40; 
+  canMsg5.can_id  = 0x50; 
+  canMsg6.can_id  = 0x60; 
+  canMsg7.can_id  = 0x70;
+  canMsg8.can_id  = 0x80; 
+  canMsg9.can_id  = 0x90; // Priority if send simultaneously : canMsg1 -> canMsg9  
+  canMsg1.can_dlc = canMsg2.can_dlc =  canMsg3.can_dlc = canMsg4.can_dlc = 1;
+  canMsg5.can_dlc = canMsg6.can_dlc = canMsg7.can_dlc = canMsg8.can_dlc = canMsg9.can_dlc =  1; 
+  
 
-  /*  Encoder init  */
-    // Set encoder pins as inputs
-    pinMode(CLK,INPUT); pinMode(DT,INPUT); pinMode(SW, INPUT_PULLUP);
-
-    // Read the initial state of CLK
-    lastStateCLK = digitalRead(CLK);
-    attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
-
-  /*  Set CAN Frame struct. */
-  canMsg1.can_id  = 0x100; // 11 bit ID (standard CAN)
-  canMsg2.can_id  = 0x200; 
-  // canMsg3.can_id  = 0x0F5; 
-  // canMsg4.can_id  = 0x0F6; 
-  // canMsg5.can_id  = 0x0F7; 
-  // canMsg6.can_id  = 0x0F8; 
-  // canMsg7.can_id  = 0x0F9; 
-  // canMsg1.can_dlc = canMsg2.can_dlc =  standard_dlc;
-  // canMsg3.can_dlc = canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = canMsg7.can_dlc = standard_dlc; 
-    // canMsg1.can_id  = 0x0F6;
-  canMsg1.can_dlc = 8;
-  canMsg1.data[0] = 0x8E;
-  canMsg1.data[1] = 0x87;
-  canMsg1.data[2] = 0x32;
-  canMsg1.data[3] = 0xFA;
-  canMsg1.data[4] = 0x26;
-  canMsg1.data[5] = 0x8E;
-  canMsg1.data[6] = 0xBE;
-  canMsg1.data[7] = 0x86;
-
-  // canMsg2.can_id  = 0x036;
-  canMsg2.can_dlc = 8;
-  canMsg2.data[0] = 0x0E;
-  canMsg2.data[1] = 0x00;
-  canMsg2.data[2] = 0x00;
-  canMsg2.data[3] = 0x08;
-  canMsg2.data[4] = 0x01;
-  canMsg2.data[5] = 0x00;
-  canMsg2.data[6] = 0x00;
-  canMsg2.data[7] = 0xA0;
+  canMsg1.data[0] = 0x01;
+  canMsg2.data[0] = 0x02;
+  canMsg3.data[0] = 0x03;
+  canMsg4.data[0] = 0x04;
+  canMsg5.data[0] = 0x05;
+  canMsg6.data[0] = 0x06;
+  canMsg7.data[0] = 0x07;
+  canMsg8.data[0] = 0x08;
+  canMsg9.data[0] = 0x09;
 } 
 
 void loop() { 
-  
-  // float* mpuData = readMPU();
-  // readEncoder();
+    // CAN message Event Scheduling Rate (Expect 9 message in total) (10 ms each)
 
-  //Might need Extended CAN to cram more message
-  // readVoltage();
-  // readCurrent();
-    
-  if(millis()-lasttime >= standard_delay){
-    // Serial.println(counter);
-    // RPM 1st Frame (The direction is included in the last bit) (Though for optical Encoder this might not be possible)
-    // unsigned char* sendByte_RPM = Encode_bytearray(counter);  
-
-    // // RPM 1st frame
-    // for(int i=0 ; i < standard_dlc  ; i++){
-    //   canMsg1.data[i] = sendByte_RPM[i];
-      
-    //   Serial.print(canMsg1.data[i], HEX);
-    //   Serial.print(',');
-    // } Serial.println();
-    
-    
-
-    // // Accel X 2nd Frame
-    // unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
-    // for(int i=0 ; i < standard_dlc ; i++){
-    //   canMsg2.data[i] = sendByte_Accelx[i];
-    // }
-
+    // Send Message By Polling
+    delay(standard_delay);
     mcp2515.sendMessage(&canMsg1);
-    delay(100);
-
+    
+    delay(standard_delay);
     mcp2515.sendMessage(&canMsg2); 
     
-
-    // // Accel Y 3rd Frame
-    // unsigned char* sendByte_Accely = Encode_bytearray(mpuData[1]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg3.data[i] = sendByte_Accely[i];
-    // }
-
-
-    // // Accel Z 4th Frame
-    // unsigned char* sendByte_Accelz = Encode_bytearray(mpuData[2]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg4.data[i] = sendByte_Accelz[i];
-    // }
-
-    // // Gyro X 5th Frame
-    // unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg5.data[i] = sendByte_Gyrox[i];
-    // }
-
-    // // Gyro Y 6th Frame
-    // unsigned char* sendByte_Gyroy = Encode_bytearray(mpuData[4]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg6.data[i] = sendByte_Gyroy[i];
-    // }
-
-    // // Gyro Z 7th Frame
-    // unsigned char* sendByte_Gyroz = Encode_bytearray(mpuData[5]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg7.data[i] = sendByte_Gyroz[i];
-    // }
-
-    // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
+    delay(standard_delay); 
+    mcp2515.sendMessage(&canMsg3);
     
-     
-    // mcp2515.sendMessage(&canMsg3);  
-    // mcp2515.sendMessage(&canMsg4);  
-    // mcp2515.sendMessage(&canMsg5);  
-    // mcp2515.sendMessage(&canMsg6);  
-    // mcp2515.sendMessage(&canMsg7);    
-    // Serial.println("Messages sent");
-    lasttime = millis(); // reset timer variable
-  }
+    delay(standard_delay);
+    mcp2515.sendMessage(&canMsg4);
+    
+    delay(standard_delay);
+    mcp2515.sendMessage(&canMsg5);  
+    
+    delay(standard_delay);
+    mcp2515.sendMessage(&canMsg6);  
+    
+    delay(standard_delay);
+    mcp2515.sendMessage(&canMsg7); 
+    
+    delay(standard_delay);
+    mcp2515.sendMessage(&canMsg8); 
+    
+    delay(standard_delay);
+    mcp2515.sendMessage(&canMsg9); 
+    
+    
+    // Delay by 25 ms for 4 message , reader side will start reading at 1st millis() , assume both is reboot at the same time
+    // if the reboot isn't at the same time , problem might occur
+
+  // if(millis()-lasttime >= standard_delay){
+   
+      
+       
+  //   // Serial.println("Messages sent");
+  //   lasttime = millis(); // reset timer variable
+  // }
   
 }
 

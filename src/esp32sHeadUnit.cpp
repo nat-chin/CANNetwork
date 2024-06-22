@@ -11,7 +11,7 @@
 #define TX_GPIO_NUM   23  // Connects to CTX
 #define RX_GPIO_NUM   22  // Connects to CRX
 #define standard_bitrate 125E3
-#define standard_delay 100
+#define standard_delay 10
 #define standard_dlc 4
 unsigned long lasttime =0;
 
@@ -32,12 +32,11 @@ void setup() {
   while (!Serial); // halt if serial port is not available
   Serial.println ("CAN Receiver/Receiver");
   delay(500);
-  
   // Set the pins
   CAN.setPins (RX_GPIO_NUM, TX_GPIO_NUM);
 
   // start the CAN bus at 500 kbps , E3 indicates 10^3 or kilos
-  if (!CAN.begin (125E3)) {
+  if (!CAN.begin (standard_bitrate)) {
     Serial.println ("Starting CAN failed!");
     while (true);
   }
@@ -46,64 +45,15 @@ void setup() {
   }
 }
 
-// Receiving & Record Data to Local SD Card
-
-// #include <ArduinoSTL.h>
-// #include <typeinfo>
-
 // Now only problem is how to read get full data out of this CAN library??? Huh??? , I don't want to do Serial.parseInt()
 unsigned char message[4];
 
-
 void loop() {
-  
+  // CAN message Event Scheduling Rate (Expect 9 message in total) (10 ms each)
+
+  // Read Message by Polling
   if(millis()-lasttime >= standard_delay){
     canReceiver();
-    // Read One frame Per Iteration
-      /* Bit arbritation Order (UNO)
-    From GPS Node
-    Lat : 0xF1
-    Lng : 0xF2 
-
-    From Motor Controller Node
-    RPM : 0xF3
-    Accelx  : 0xF4
-    Accely  : 0xF5
-    AccelZ  : 0xF6
-    GyroX   : 0xF7
-    GyroY   : 0xF8
-    GyroZ   : 0xF9
-
-    From This head unit
-    Monitor : Nominal Voltage of Battery the voltage (If possible Calculate for SOC and SOH )
-              Current (Discharge) of Battery to Motor
-
-    So the order of received message in 500 Kbps (with 100ms timer delay) (Sampling Rate) is 
-    Lat Lng RPM Accelx , Accely , Accelz , Gyro x , Gyro y , Gyro z
-    */
-
-    /*Decode Message back to 4 byte float */
-    // float receiveFloat = Decode_bytearray(message);
-    // Serial.println(receiveFloat,7);
-
-    // /* Confirm 4 bytes message each CAN frame*/
-    // for (int i = 0; i < 4; i++) {
-    //   Serial.print(message[3-i]);
-    //   Serial.print(',');
-    // } Serial.println();
-
-    // for (int i = 0; i < 4; i++) {
-    //   Serial.print(message[3-i], HEX);
-    //   Serial.print(',');
-    // } Serial.println();
-
-    // Serial.println();
-
-
-    /* Acknowledgement Frame */
-    // canSender();
-
-
     /* Function to Record all data to local SD card in CSV format (Optional) */
 
     lasttime = millis();
@@ -187,32 +137,3 @@ void canSender() {
 }
 
 //==================================================================================//
-
-
-
-
-// float readCurrent() {
-//   /*---------Current Calculation--------------*/
-//   float voltage_offset = 5000.0/2.0; // in mV Can be other value if we more voltage is applied in Series measurement
-//   float Vhall = 0.0; // Induced voltage from Hall effect sensor
-//   float mVperAmp = 100.0; // Sensitivity from sensor mV/A (20A model variant)
-//   float current = 0.0;
-
-//   Vhall = analogRead(AmpsPin)* 5000.0 / 1023.0; 
-//   current = ((Vhall - voltage_offset) / mVperAmp); 
-//   // The offset when Current sensor ACS712 sense no current is Vcc/2 , and the measured Vhall is with respect to that point , we need to subtract that out 
-//   return current;
-// }
-
-// float readVoltage() { 
-//   float Vsignal = 0.0; // Voltage from divider
-//   float Vin = 0.0; // Actual voltage measured , which is voltage across our divider circuit
-//   float dividerRatio = (7500.0/(30000.0+7500.0)); // Voltage divider Calculation (R2/R1+R2) unit ohms
-//   float ref_voltage = 5.0; // Default Analog Reference Voltage of Arduino UNO R3 (reference)
-
-//   // Convert the read value with the scale of 5/1023 since ADC produce digital voltage that is pulled from MCU power rail, not the measured voltage
-//   Vsignal = analogRead(VoltsPin) * (ref_voltage/ 1023.0); 
-//   // The read value will be 1/5 of the measured voltage, Revert back to original voltage we divide by the Divider ratio , or times 5
-//   Vin = Vsignal / dividerRatio; 
-//   return Vin;
-// }
