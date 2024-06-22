@@ -29,6 +29,9 @@ void setup() {
   Serial.begin (115200);
   // Serial1.begin (115200);
   // Serial2.begin (115200);
+
+
+  
   while (!Serial); // halt if serial port is not available
   Serial.println ("CAN Receiver/Receiver");
   delay(500);
@@ -37,30 +40,52 @@ void setup() {
   CAN.setPins (RX_GPIO_NUM, TX_GPIO_NUM);
 
   // start the CAN bus at 500 kbps , E3 indicates 10^3 or kilos
-  if (!CAN.begin (500E3)) {
+  if (!CAN.begin (standard_bitrate)) {
     Serial.println ("Starting CAN failed!");
     while (true);
   }
   else {
     Serial.println ("CAN Initialized");
   }
+
+    // CAN.end();
+    // // Configure bit timing parameters
+    // twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
+    // // Adjust timing configuration if necessary
+    // t_config.brp = 32;    // Example value for Baud rate prescaler
+    // t_config.tseg_1 = 15; // Example value for Time segment 1
+    // t_config.tseg_2 = 4;  // Example value for Time segment 2
+    // t_config.sjw = 3;     // Example value for Synchronization jump width
+
+    // twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_21, GPIO_NUM_22, TWAI_MODE_NORMAL);
+    // twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+    // if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
+    //     Serial.println("TWAI driver installed");
+    // } else {
+    //     Serial.println("Failed to install TWAI driver");
+    // }
+
+    // if (twai_start() == ESP_OK) {
+    //     Serial.println("TWAI driver started");
+    // } else {
+    //     Serial.println("Failed to start TWAI driver");
+    // }
+
+
+
 }
 
 // Receiving & Record Data to Local SD Card
 
-// #include <ArduinoSTL.h>
-// #include <typeinfo>
-
-// Now only problem is how to read get full data out of this CAN library??? Huh??? , I don't want to do Serial.parseInt()
 unsigned char message[4];
-
 
 void loop() {
   
   if(millis()-lasttime >= standard_delay){
-    canReceiver();
-    // Read One frame Per Iteration
-      /* Bit arbritation Order (UNO)
+    canReceiver(); // Read from RX buffer Per Iteration  (Now trying to do multiple transmission)
+
+    /* Bit arbritation Order (UNO)
     From GPS Node
     Lat : 0xF1
     Lng : 0xF2 
@@ -97,7 +122,7 @@ void loop() {
       Serial.print(',');
     } Serial.println();
 
-    Serial.println();
+    // Serial.println();
 
 
     /* Acknowledgement Frame */
