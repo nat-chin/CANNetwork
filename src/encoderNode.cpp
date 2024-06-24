@@ -7,17 +7,10 @@
 #define standard_bitrate CAN_125KBPS
 #define standard_delay 100
 #define standard_dlc 4
-MCP2515 mcp2515(10,MCP_16MHZ);
+MCP2515 mcp2515(10);
+// Use the Same as Source Clock of MCP2515 ,
 struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMsg7;  
 //  1-7 CAN frame
-
-/*  Rotary Encoder (Will change Code to Motor Encoder Later) */
-  #define CLK 4 // Input B
-  #define DT 5 // Input A
-  #define SW 3 // Reset Switch
-  float counter = 0;
-  int currentStateCLK; int lastStateCLK;
-  char currentDir = ' '; // Consider CW as +
 
 /*  IMU  */
   #include "Wire.h"
@@ -25,6 +18,12 @@ struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMs
   MPU6050 mpu(Wire); unsigned long lasttime = 0;
 
 // --------------------------------------------------------//
+
+volatile bool interrupt = false;
+void ISR_CAN() {
+  interrupt = true;
+}
+
 float* readMPU();  
 void readEncoder(); void resetEncoder(); 
 unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
@@ -37,7 +36,7 @@ void setup() {
   /*  mcp2515 init  */
     while (!Serial); // halt communication if Uart Serial port isn't available
     mcp2515.reset();
-    mcp2515.setBitrate(standard_bitrate); //Set Bit rate to 500KBPS (Need to match with target device)
+    mcp2515.setBitrate(standard_bitrate); //Set Bit rate to 125KBPS (Need to match with target device)
     mcp2515.setNormalMode();
 
   /*  IMU init  */
@@ -47,96 +46,143 @@ void setup() {
     mpu.calcOffsets(); // Calibrate both gyro and acc offset 
     Serial.println("Done: \n");
 
-  /*  Encoder init  */
-    // Set encoder pins as inputs
-    pinMode(CLK,INPUT); pinMode(DT,INPUT); pinMode(SW, INPUT_PULLUP);
-
-    // Read the initial state of CLK
-    lastStateCLK = digitalRead(CLK);
-    attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
+    attachInterrupt(digitalPinToInterrupt(2),ISR_CAN ,FALLING); // interrupt pin driven low after triggered
 
   /*  Set CAN Frame struct. */
-  canMsg1.can_id  = 0x10; // 11 bit ID (standard CAN)
-  canMsg2.can_id  = 0x20; 
-  canMsg3.can_id  = 0x30; 
-  canMsg4.can_id  = 0x40; 
-  canMsg5.can_id  = 0x50; 
-  canMsg6.can_id  = 0x60; 
-  canMsg7.can_id  = 0x70; 
-  canMsg1.can_dlc = standard_dlc;
-  canMsg2.can_dlc = canMsg3.can_dlc = canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = canMsg7.can_dlc = standard_dlc; 
+  // canMsg1.can_id  = 0x10; // 11 bit ID (standard CAN)
+  canMsg1.can_id  = 0x10; 
+  canMsg2.can_id  = 0x11; 
+  canMsg3.can_id  = 0x12; 
+  canMsg4.can_id  = 0x13; 
+  canMsg5.can_id  = 0x14; 
+  canMsg6.can_id  = 0x15; 
+  
+  canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = 1;
+  canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = 1; 
+
+  // Dummy data for test
+  canMsg1.data[0] = 0x01;
+  canMsg2.data[0] = 0x02;
+  canMsg3.data[0] = 0x03;
+  canMsg4.data[0] = 0x04;
+  canMsg5.data[0] = 0x05;
+  canMsg6.data[0] = 0x06;
+
+  //Set Mask and Filter Receiving of ID to receive only from Head unit , using only RXB0 
+  // mcp2515.setFilter(MCP2515::RXF0, false, 0x01); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
+
+  // Some how Setting Receive filter makes this shit don't transmit??
 } 
 
 void loop() { 
   
-  float* mpuData = readMPU();
-  readEncoder();
+  // float* mpuData = readMPU();
+  
     
   if(millis()-lasttime >= standard_delay){      
 
-    // RPM 1st frame
-    unsigned char* sendByte_RPM = Encode_bytearray(counter);
-    for(int i=0 ; i < standard_dlc  ; i++){
-      canMsg1.data[i] = sendByte_RPM[i];
+    // // RPM 1st frame
+    // unsigned char* sendByte_RPM = Encode_bytearray(counter);
+    // for(int i=0 ; i < standard_dlc  ; i++){
+    //   canMsg1.data[i] = sendByte_RPM[i];
       
-      // Serial.print(canMsg1.data[i], HEX);
-      // Serial.print(',');
-    } 
-    // Serial.println();
+    //   // Serial.print(canMsg1.data[i], HEX);
+    //   // Serial.print(',');
+    // } 
+    // // Serial.println();
     
 
-    // Accel X 2nd Frame
-    unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
-    for(int i=0 ; i < standard_dlc ; i++){
-      canMsg2.data[i] = sendByte_Accelx[i];
-    }
+    // // Accel X 2nd Frame
+    // unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
+    // for(int i=0 ; i < standard_dlc ; i++){
+    //   canMsg1.data[i] = sendByte_Accelx[i];
+    // }
 
     
-    // Accel Y 3rd Frame
-    unsigned char* sendByte_Accely = Encode_bytearray(mpuData[1]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg3.data[i] = sendByte_Accely[i];
-    }
+    // // Accel Y 3rd Frame
+    // unsigned char* sendByte_Accely = Encode_bytearray(mpuData[1]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg2.data[i] = sendByte_Accely[i];
+    // }
 
 
-    // Accel Z 4th Frame
-    unsigned char* sendByte_Accelz = Encode_bytearray(mpuData[2]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg4.data[i] = sendByte_Accelz[i];
-    }
+    // // Accel Z 4th Frame
+    // unsigned char* sendByte_Accelz = Encode_bytearray(mpuData[2]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg3.data[i] = sendByte_Accelz[i];
+    // }
 
-    // Gyro X 5th Frame
-    unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg5.data[i] = sendByte_Gyrox[i];
-    }
+    // // Gyro X 5th Frame
+    // unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg4.data[i] = sendByte_Gyrox[i];
+    // }
 
-    // Gyro Y 6th Frame
-    unsigned char* sendByte_Gyroy = Encode_bytearray(mpuData[4]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg6.data[i] = sendByte_Gyroy[i];
-    }
+    // // Gyro Y 6th Frame
+    // unsigned char* sendByte_Gyroy = Encode_bytearray(mpuData[4]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg5.data[i] = sendByte_Gyroy[i];
+    // }
 
-    // Gyro Z 7th Frame
-    unsigned char* sendByte_Gyroz = Encode_bytearray(mpuData[5]);  
-    for(int i=0 ; i< standard_dlc  ; i++){
-      canMsg7.data[i] = sendByte_Gyroz[i];
-    }
+    // // Gyro Z 7th Frame
+    // unsigned char* sendByte_Gyroz = Encode_bytearray(mpuData[5]);  
+    // for(int i=0 ; i< standard_dlc  ; i++){
+    //   canMsg6.data[i] = sendByte_Gyroz[i];
+    // }
 
-    // Transmit CAN frame out of mcp2515 FIFO Buffer to CAN Bus
+    // Use write Interrupt Instead
+    // Transmit CAN frame out of mcp2515 TX Buffer
+    // Que 6 message into 3 Transmit Buffer manually , therefore send 2 time with delay
+    // 1st we will receive the RTR packet from esp32 to trigger the fire receive interrupt to trigger a condition to start stream data
+    // but we won't use that RTR packet to response back  
     
-    mcp2515.sendMessage(&canMsg1);
-    mcp2515.sendMessage(&canMsg2); 
-    // mcp2515.sendMessage(&canMsg3);  
-    // mcp2515.sendMessage(&canMsg4);  
-    // mcp2515.sendMessage(&canMsg5);  
-    // mcp2515.sendMessage(&canMsg6);  
-    // mcp2515.sendMessage(&canMsg7);    
+
+// // Error Detection
+  uint8_t errorFlags = mcp2515.getErrorFlags();
+    // Serial.println(errorFlags);
+    
+  if (errorFlags & MCP2515::EFLG_TXBO){}
+    Serial.println("TX Bus off");
+  if (errorFlags & MCP2515::EFLG_TXEP)
+    Serial.println("TX Error-Passive");
+  if (errorFlags & MCP2515::EFLG_RXEP)
+    Serial.println("RX Error-Passive");
+  if (errorFlags & MCP2515::EFLG_TXWAR)
+    Serial.println("TX Error Warning");
+  if (errorFlags & MCP2515::EFLG_RXWAR)
+    Serial.println("RX Error Warning");
+  if (errorFlags & MCP2515::EFLG_EWARN)
+    Serial.println("Overall Error Warning");
+    
+// RX buffer overflow and anykind of Bus off status
+if (errorFlags & MCP2515::EFLG_RX0OVR)
+    Serial.println("RXB0 overflow error");
+if (errorFlags & MCP2515::EFLG_RX1OVR)
+    Serial.println("RXB1 overflow error");
+if (errorFlags & MCP2515::EFLG_TXBO)
+    Serial.println("Bus-off error");
+
+// Error Handling
+
+
+    // mcp2515.sendMessage(&canMsg1);
+    mcp2515.sendMessage(MCP2515::TXB0 ,&canMsg1);
+    // mcp2515.sendMessage(MCP2515::TXB1 ,&canMsg2);
+    // mcp2515.sendMessage(MCP2515::TXB2 ,&canMsg3);
+
+    // mcp2515.sendMessage(MCP2515::TXB0 ,&canMsg4);
+    // mcp2515.sendMessage(MCP2515::TXB1 ,&canMsg5);
+    // mcp2515.sendMessage(MCP2515::TXB2 ,&canMsg6);    
     // Serial.println("Messages sent");
     lasttime = millis(); // reset timer variable
   }
   
+
+//Time for timed Schedule , with Current TWAI CAN low level that I need to config : It is out of scope now.
+
+  
 }
+
 
 unsigned char *Encode_bytearray(float f) {
     // Use memcpy to copy the bytes of the float into the array
@@ -167,38 +213,31 @@ float* readMPU() {
   return imuData; // Return the array of IMU data
 }
 
-// Rotary Encoder need debouncing , as spinning to fast generate noise
-
-void readEncoder() {
-        
-	// Read the current state of CLK
-	currentStateCLK = digitalRead(CLK);
-
-	// If last and current state of CLK are different, then pulse occurred
-	// React to only 1 state change to avoid double count
-
-	if (currentStateCLK != lastStateCLK  && currentStateCLK == 1){
-		// If the DT state is different than the CLK state then
-		// the encoder is rotating CW so Increment
-		if (digitalRead(DT) != currentStateCLK) {
-      counter ++;
-			currentDir ='+';
-		} else {
-			// Encoder is rotating CCW so decrement instead
-      counter--; 
-			currentDir ='-';
-		}
-	}
-	// Remember last CLK state
-	lastStateCLK = currentStateCLK;
-}
-
-void resetEncoder(){
-      counter = 0 ;
-      currentDir = ' ';
-}
 
 
 
-
+// // // Error Detection
+//   uint8_t errorFlags = mcp2515.getErrorFlags();
+//     // Serial.println(errorFlags);
+    
+//   if (errorFlags & MCP2515::EFLG_TXBO){}
+//     Serial.println("TX Bus off");
+//   if (errorFlags & MCP2515::EFLG_TXEP)
+//     Serial.println("TX Error-Passive");
+//   if (errorFlags & MCP2515::EFLG_RXEP)
+//     Serial.println("RX Error-Passive");
+//   if (errorFlags & MCP2515::EFLG_TXWAR)
+//     Serial.println("TX Error Warning");
+//   if (errorFlags & MCP2515::EFLG_RXWAR)
+//     Serial.println("RX Error Warning");
+//   if (errorFlags & MCP2515::EFLG_EWARN)
+//     Serial.println("Overall Error Warning");
+    
+// // RX buffer overflow and anykind of Bus off status
+// if (errorFlags & MCP2515::EFLG_RX0OVR)
+//     Serial.println("RXB0 overflow error");
+// if (errorFlags & MCP2515::EFLG_RX1OVR)
+//     Serial.println("RXB1 overflow error");
+// if (errorFlags & MCP2515::EFLG_TXBO)
+//     Serial.println("Bus-off error");
 

@@ -5,8 +5,9 @@
 // #include <esp32-hal.h>
 extern "C"{
   #include <driver/twai.h>
+  // #include <driver/gpio.h>
+  // #include "soc/clk_tree_defs.h"
 }
-
 
 #define TX_GPIO_NUM   23  // Connects to CTX
 #define RX_GPIO_NUM   22  // Connects to CRX
@@ -16,22 +17,22 @@ extern "C"{
 unsigned long lasttime =0;
 
 //==================================================================================//
+volatile bool interrupt = false;
+void IRAM_ATTR IO_INT_ISR() {
+  interrupt = true;
+}
+
+
 void canSender(); void canReceiver();
 unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
 float readCurrent(); float readVoltage();
 
-/* Voltage and Current Sense from Battery */
-  #define AmpsPin A11
-  #define VoltsPin A0
 
 void setup() {
-
   Serial.begin (115200);
   // Serial1.begin (115200);
   // Serial2.begin (115200);
 
-
-  
   while (!Serial); // halt if serial port is not available
   Serial.println ("CAN Receiver/Receiver");
   delay(500);
@@ -48,64 +49,76 @@ void setup() {
     Serial.println ("CAN Initialized");
   }
 
-    // CAN.end();
-    // // Configure bit timing parameters
-    // twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
-    // // Adjust timing configuration if necessary
-    // t_config.brp = 32;    // Example value for Baud rate prescaler
-    // t_config.tseg_1 = 15; // Example value for Time segment 1
-    // t_config.tseg_2 = 4;  // Example value for Time segment 2
-    // t_config.sjw = 3;     // Example value for Synchronization jump width
+  // TWAI Dual Filter
+  // 0x10 - 0x17 (First Seven ID) , Mask only two 1st bit as (10)000 ,  0x18 = 11000
+  CAN.filter(0x10,0x18);
 
-    // twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_21, GPIO_NUM_22, TWAI_MODE_NORMAL);
-    // twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+  // 0x10-0x19 (Last 2 ID) , Mask only 4 1st bit (1100)0 , 0x1E = 11110 
+  CAN.filter(0x18,0x1E);
 
-    // if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
-    //     Serial.println("TWAI driver installed");
-    // } else {
-    //     Serial.println("Failed to install TWAI driver");
-    // }
+  // Send packet of ID 0x01 to signal all Non-Head unit Node to Starts streaming Sensor Data
+  // canSender();
 
-    // if (twai_start() == ESP_OK) {
-    //     Serial.println("TWAI driver started");
-    // } else {
-    //     Serial.println("Failed to start TWAI driver");
-    // }
+  // Enable The All interrupt source for proper Error Handling ( TX , RX Interrupt is The most essential )
+  //  uint32_t alerts_to_enable = TWAI_ALERT_TX_IDLE           // Transmit buffer is idle
+  //                         | TWAI_ALERT_TX_SUCCESS        // Transmission successfully completed
+  //                         | TWAI_ALERT_RX_DATA           // Message received and added to RX queue
+  //                         | TWAI_ALERT_BELOW_ERR_WARN    // Error warning limit has been reached
+  //                         | TWAI_ALERT_ERR_ACTIVE        // TWAI controller has become error active
+  //                         | TWAI_ALERT_ERR_PASS          // TWAI controller has become error passive
+  //                         | TWAI_ALERT_BUS_ERROR         // Bus error has occurred
+  //                         | TWAI_ALERT_BUS_OFF           // Bus-off condition occurred
+  //                         | TWAI_ALERT_RX_QUEUE_FULL     // RX queue is full
+  //                         | TWAI_ALERT_ARB_LOST          // Arbitration was lost
+  //                         | TWAI_ALERT_RECOVERY_IN_PROGRESS // Bus recovery in progress
+  //                         | TWAI_ALERT_BUS_RECOVERED     // Bus has been recovered
+  //                         | TWAI_ALERT_AND_LOG;          // Enables logging of alerts
+  //   if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
+  //       printf("TWAI alerts enabled\n");
+  //   } else {
+  //       printf("Failed to enable TWAI alerts\n");
+  //       return;
+  //   }
 
-
-
+    // attachInterrupt(digitalPinToInterrupt(), IO_INT_ISR, FALLING); // (Interrupt pin being pull down after event detect)
+    // what is interrupt pin of twai wth
 }
 
+
 // Receiving & Record Data to Local SD Card
+
+
 
 unsigned char message[4];
 
 void loop() {
-  
+
+  // twai_message_t message;
+  // uint32_t alerts_triggered;
+
+  //   // Check for triggered alerts
+  //   if (twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(100)) == ESP_OK) {
+  //       if (alerts_triggered & TWAI_ALERT_RX_DATA) {
+  //           // Message received
+  //           if (twai_receive(&message, pdMS_TO_TICKS(100)) == ESP_OK) {
+  //               // Process the received message
+  //               printf("Message received: ID 0x%lX, DLC %d, Data: ", message.identifier, message.data_length_code);
+  //               for (int i = 0; i < message.data_length_code; i++) {
+  //                   printf("0x%02X ", message.data[i]);
+  //               }
+  //               printf("\n");
+  //           }
+  //       }
+  //       if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
+  //           printf("TWAI controller entered error passive state\n");
+  //       }
+  //       if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
+  //           printf("TWAI bus error occurred\n");
+  //       }
+  //   }
+
   if(millis()-lasttime >= standard_delay){
     canReceiver(); // Read from RX buffer Per Iteration  (Now trying to do multiple transmission)
-
-    /* Bit arbritation Order (UNO)
-    From GPS Node
-    Lat : 0xF1
-    Lng : 0xF2 
-
-    From Motor Controller Node
-    RPM : 0xF3
-    Accelx  : 0xF4
-    Accely  : 0xF5
-    AccelZ  : 0xF6
-    GyroX   : 0xF7
-    GyroY   : 0xF8
-    GyroZ   : 0xF9
-
-    From This head unit
-    Monitor : Nominal Voltage of Battery the voltage (If possible Calculate for SOC and SOH )
-              Current (Discharge) of Battery to Motor
-
-    So the order of received message in 500 Kbps (with 100ms timer delay) (Sampling Rate) is 
-    Lat Lng RPM Accelx , Accely , Accelz , Gyro x , Gyro y , Gyro z
-    */
 
     /*Decode Message back to 4 byte float */
     float receiveFloat = Decode_bytearray(message);
@@ -113,7 +126,7 @@ void loop() {
 
     /* Confirm 4 bytes message each CAN frame*/
     for (int i = 0; i < 4; i++) {
-      Serial.print(message[3-i]);
+      Serial.print(message[3-i],DEC);
       Serial.print(',');
     } Serial.println();
 
@@ -123,17 +136,12 @@ void loop() {
     } Serial.println();
 
     // Serial.println();
-
-
-    /* Acknowledgement Frame */
-    // canSender();
-
+   
 
     /* Function to Record all data to local SD card in CSV format (Optional) */
 
     lasttime = millis();
   }
- 
 }
 /* Sample of Received Bit */
 
@@ -152,7 +160,6 @@ float Decode_bytearray(unsigned char* c) {
     memcpy(&f, c, sizeof(f));
     return f;
 }
-
 
 //==================================================================================//
 
@@ -191,11 +198,11 @@ void canReceiver() {
       // Serial.println();
     }
   } 
+  // else{ Serial.println("NO Packet");}
 }
 
-// Sending Acknowledgement Bit (??)
 void canSender() {
-  Serial.print ("Sending packet ... ");
+  Serial.print ("Sending RTR packet to start the System ... ");
   // CAN.beginPacket (0x12);  //sets the ID and clears the transmit buffer
   // // CAN.beginExtendedPacket(0xabcdef);
   // CAN.write ('1'); //write data to buffer. data is not sent until endPacket() is called.
@@ -203,7 +210,8 @@ void canSender() {
 
   //RTR packet with a requested data length
   // RTR sends empty packet and request some data length back
-  CAN.beginPacket (0x12, 0, true);
+  CAN.beginPacket (0x01, 1, true);
+  CAN.write('WakeUp');
   CAN.endPacket();
 
   Serial.println ("done");
@@ -216,28 +224,4 @@ void canSender() {
 
 
 
-// float readCurrent() {
-//   /*---------Current Calculation--------------*/
-//   float voltage_offset = 5000.0/2.0; // in mV Can be other value if we more voltage is applied in Series measurement
-//   float Vhall = 0.0; // Induced voltage from Hall effect sensor
-//   float mVperAmp = 100.0; // Sensitivity from sensor mV/A (20A model variant)
-//   float current = 0.0;
 
-//   Vhall = analogRead(AmpsPin)* 5000.0 / 1023.0; 
-//   current = ((Vhall - voltage_offset) / mVperAmp); 
-//   // The offset when Current sensor ACS712 sense no current is Vcc/2 , and the measured Vhall is with respect to that point , we need to subtract that out 
-//   return current;
-// }
-
-// float readVoltage() { 
-//   float Vsignal = 0.0; // Voltage from divider
-//   float Vin = 0.0; // Actual voltage measured , which is voltage across our divider circuit
-//   float dividerRatio = (7500.0/(30000.0+7500.0)); // Voltage divider Calculation (R2/R1+R2) unit ohms
-//   float ref_voltage = 5.0; // Default Analog Reference Voltage of Arduino UNO R3 (reference)
-
-//   // Convert the read value with the scale of 5/1023 since ADC produce digital voltage that is pulled from MCU power rail, not the measured voltage
-//   Vsignal = analogRead(VoltsPin) * (ref_voltage/ 1023.0); 
-//   // The read value will be 1/5 of the measured voltage, Revert back to original voltage we divide by the Divider ratio , or times 5
-//   Vin = Vsignal / dividerRatio; 
-//   return Vin;
-// }
