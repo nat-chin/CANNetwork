@@ -3,7 +3,7 @@
 #include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
 
-static const int TXPin = 3, RXPin = 4;
+static const int TXPin = 6, RXPin = 7;
 static const uint32_t GPSBaud = 9600;
 
 // The TinyGPSPlus object
@@ -39,7 +39,7 @@ void resetEncoder(){
       currentDir = ' ';
 }
 
-void ISR_CAN(){
+void IRQ_HANDLER(){
   interrupt = true;
  }
 
@@ -73,7 +73,7 @@ void setup() {
     // mcp2515.setFilter(MCP2515::RXF0, false, 0x01); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
 
   attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
-  attachInterrupt(digitalPinToInterrupt(2), ISR_CAN, FALLING); // (Interrupt pin being driven low when fired)
+  attachInterrupt(digitalPinToInterrupt(2), IRQ_HANDLER, FALLING); // (Interrupt pin being driven low when fired)
 }
 
 

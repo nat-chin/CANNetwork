@@ -18,7 +18,7 @@ unsigned long lasttime =0;
 
 //==================================================================================//
 volatile bool interrupt = false;
-void IRAM_ATTR IO_INT_ISR() {
+void IRAM_ATTR IRQ_HANDLER() {
   interrupt = true;
 }
 
@@ -49,12 +49,15 @@ void setup() {
     Serial.println ("CAN Initialized");
   }
 
-  // TWAI Dual Filter
+  // TWAI Dual Filter (How to activate???)
   // 0x10 - 0x17 (First Seven ID) , Mask only two 1st bit as (10)000 ,  0x18 = 11000
-  CAN.filter(0x10,0x18);
-
+  // CAN.filter(0x10,0x18);
   // 0x10-0x19 (Last 2 ID) , Mask only 4 1st bit (1100)0 , 0x1E = 11110 
-  CAN.filter(0x18,0x1E);
+  // CAN.filter(2,0x18,0x1E);
+
+  // Okay let's use single filter for now , (Allow all 16 ID range (Whole HEX digit))
+  // In reality I need only 10 ID range
+  CAN.filter(0x10,0x10);
 
   // Send packet of ID 0x01 to signal all Non-Head unit Node to Starts streaming Sensor Data
   // canSender();
@@ -211,7 +214,7 @@ void canSender() {
   //RTR packet with a requested data length
   // RTR sends empty packet and request some data length back
   CAN.beginPacket (0x01, 1, true);
-  CAN.write('WakeUp');
+  CAN.write('W');
   CAN.endPacket();
 
   Serial.println ("done");

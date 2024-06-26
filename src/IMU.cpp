@@ -20,7 +20,7 @@ struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMs
 // --------------------------------------------------------//
 
 volatile bool interrupt = false;
-void ISR_CAN() {
+void IRQ_HANDLER() {
   interrupt = true;
 }
 
@@ -46,7 +46,7 @@ void setup() {
     mpu.calcOffsets(); // Calibrate both gyro and acc offset 
     Serial.println("Done: \n");
 
-    attachInterrupt(digitalPinToInterrupt(2),ISR_CAN ,FALLING); // interrupt pin driven low after triggered
+    attachInterrupt(digitalPinToInterrupt(2), IRQ_HANDLER ,FALLING); // interrupt pin driven low after triggered
 
   /*  Set CAN Frame struct. */
   // canMsg1.can_id  = 0x10; // 11 bit ID (standard CAN)
@@ -80,18 +80,7 @@ void loop() {
   
     
   if(millis()-lasttime >= standard_delay){      
-
-    // // RPM 1st frame
-    // unsigned char* sendByte_RPM = Encode_bytearray(counter);
-    // for(int i=0 ; i < standard_dlc  ; i++){
-    //   canMsg1.data[i] = sendByte_RPM[i];
-      
-    //   // Serial.print(canMsg1.data[i], HEX);
-    //   // Serial.print(',');
-    // } 
-    // // Serial.println();
     
-
     // // Accel X 2nd Frame
     // unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
     // for(int i=0 ; i < standard_dlc ; i++){
@@ -111,7 +100,7 @@ void loop() {
     // for(int i=0 ; i< standard_dlc  ; i++){
     //   canMsg3.data[i] = sendByte_Accelz[i];
     // }
-
+  // mcp2515.getStatus();
     // // Gyro X 5th Frame
     // unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
     // for(int i=0 ; i< standard_dlc  ; i++){
@@ -141,7 +130,7 @@ void loop() {
   uint8_t errorFlags = mcp2515.getErrorFlags();
     // Serial.println(errorFlags);
     
-  if (errorFlags & MCP2515::EFLG_TXBO){}
+  if (errorFlags & MCP2515::EFLG_TXBO)
     Serial.println("TX Bus off");
   if (errorFlags & MCP2515::EFLG_TXEP)
     Serial.println("TX Error-Passive");
@@ -165,8 +154,8 @@ if (errorFlags & MCP2515::EFLG_TXBO)
 // Error Handling
 
 
-    // mcp2515.sendMessage(&canMsg1);
-    mcp2515.sendMessage(MCP2515::TXB0 ,&canMsg1);
+    mcp2515.sendMessage(&canMsg1);
+    // mcp2515.sendMessage(MCP2515::TXB0 ,&canMsg1);
     // mcp2515.sendMessage(MCP2515::TXB1 ,&canMsg2);
     // mcp2515.sendMessage(MCP2515::TXB2 ,&canMsg3);
 
@@ -212,32 +201,4 @@ float* readMPU() {
   imuData[5] = mpu.getAngleZ(); // Gyro Z
   return imuData; // Return the array of IMU data
 }
-
-
-
-
-// // // Error Detection
-//   uint8_t errorFlags = mcp2515.getErrorFlags();
-//     // Serial.println(errorFlags);
-    
-//   if (errorFlags & MCP2515::EFLG_TXBO){}
-//     Serial.println("TX Bus off");
-//   if (errorFlags & MCP2515::EFLG_TXEP)
-//     Serial.println("TX Error-Passive");
-//   if (errorFlags & MCP2515::EFLG_RXEP)
-//     Serial.println("RX Error-Passive");
-//   if (errorFlags & MCP2515::EFLG_TXWAR)
-//     Serial.println("TX Error Warning");
-//   if (errorFlags & MCP2515::EFLG_RXWAR)
-//     Serial.println("RX Error Warning");
-//   if (errorFlags & MCP2515::EFLG_EWARN)
-//     Serial.println("Overall Error Warning");
-    
-// // RX buffer overflow and anykind of Bus off status
-// if (errorFlags & MCP2515::EFLG_RX0OVR)
-//     Serial.println("RXB0 overflow error");
-// if (errorFlags & MCP2515::EFLG_RX1OVR)
-//     Serial.println("RXB1 overflow error");
-// if (errorFlags & MCP2515::EFLG_TXBO)
-//     Serial.println("Bus-off error");
 
