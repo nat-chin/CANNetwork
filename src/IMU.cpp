@@ -1,5 +1,5 @@
 // This node maybe change to PI pico instead of UNO R3
-#include "Arduino.h"
+#include <ArduinoSTL.h> // C standard Libs , already include Arduino.h
 
 /* mcp2515 init */
 #include <SPI.h>
@@ -8,21 +8,20 @@
 #define standard_delay 100
 #define standard_dlc 4
 MCP2515 mcp2515(10);
-// Use the Same as Source Clock of MCP2515 ,
-struct can_frame canMsg1 , canMsg2 , canMsg3 , canMsg4 , canMsg5, canMsg6, canMsg7;  
+struct can_frame trgMsg; // CAN frame Received From Headunit
+struct can_frame canMsg1, canMsg2, canMsg3 ,canMsg4, canMsg5, canMsg6, doneMsg; ; // CAN frame Transmit to Headunit 
 //  1-7 CAN frame
 
 /*  IMU  */
   #include "Wire.h"
   #include <MPU6050_light.h>
   MPU6050 mpu(Wire); unsigned long lasttime = 0;
-
 // --------------------------------------------------------//
 
-volatile bool interrupt = false;
-void IRQ_HANDLER() {
-  interrupt = true;
-}
+// volatile bool interrupt = false;
+// void IRQ_HANDLER() {
+//   interrupt = true;
+// }
 
 float* readMPU();  
 void readEncoder(); void resetEncoder(); 
@@ -36,7 +35,7 @@ void setup() {
   /*  mcp2515 init  */
     while (!Serial); // halt communication if Uart Serial port isn't available
     mcp2515.reset();
-    mcp2515.setBitrate(standard_bitrate); //Set Bit rate to 125KBPS (Need to match with target device)
+    mcp2515.setBitrate(standard_bitrate,MCP_8MHZ); //Set Bit rate to 125KBPS (Need to match with target device)
     mcp2515.setNormalMode();
 
   /*  IMU init  */
@@ -46,78 +45,75 @@ void setup() {
     mpu.calcOffsets(); // Calibrate both gyro and acc offset 
     Serial.println("Done: \n");
 
-    attachInterrupt(digitalPinToInterrupt(2), IRQ_HANDLER ,FALLING); // interrupt pin driven low after triggered
+    // attachInterrupt(digitalPinToInterrupt(2), IRQ_HANDLER ,FALLING); // interrupt pin driven low after triggered
 
   /*  Set CAN Frame struct. */
-  // canMsg1.can_id  = 0x10; // 11 bit ID (standard CAN)
-  canMsg1.can_id  = 0x10; 
-  canMsg2.can_id  = 0x11; 
-  canMsg3.can_id  = 0x12; 
-  canMsg4.can_id  = 0x13; 
-  canMsg5.can_id  = 0x14; 
-  canMsg6.can_id  = 0x15; 
+  canMsg1.can_id  = 0x14; 
+  canMsg2.can_id  = 0x15; 
+  canMsg3.can_id  = 0x16; 
+  canMsg4.can_id  = 0x17; 
+  canMsg5.can_id  = 0x18; 
+  canMsg6.can_id  = 0x19; 
   
-  canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = 1;
-  canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = 1; 
+  canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = standard_dlc;
+  canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = standard_dlc; 
 
-  // Dummy data for test
-  canMsg1.data[0] = 0x01;
-  canMsg2.data[0] = 0x02;
-  canMsg3.data[0] = 0x03;
-  canMsg4.data[0] = 0x04;
-  canMsg5.data[0] = 0x05;
-  canMsg6.data[0] = 0x06;
+  doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'B';
+  // // Dummy data for test
+  // canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = 1;
+  // canMsg1.data[0] = 0x01; canMsg2.data[0] = 0x02; canMsg3.data[0] = 0x03;
 
   //Set Mask and Filter Receiving of ID to receive only from Head unit , using only RXB0 
-  // mcp2515.setFilter(MCP2515::RXF0, false, 0x01); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
+  mcp2515.setFilter(MCP2515::RXF0, false, 0x02); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
 
   // Some how Setting Receive filter makes this shit don't transmit??
 } 
 
+// CAN message Scheduling
+// volatile bool trigger = false;   
+volatile uint8_t msg_counter = 0; // will be set to one after the 1st trigger 
+unsigned long last_msg_time = 0; // get this out the loop
+volatile bool doneFlag = false;
+
 void loop() { 
   
-  // float* mpuData = readMPU();
+  float* mpuData = readMPU();  
+    
+    // Accel X 2nd Frame
+    unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
+    for(int i=0 ; i < standard_dlc ; i++){
+      canMsg1.data[i] = sendByte_Accelx[i];
+    }
+
+    // Accel Y 3rd Frame
+    unsigned char* sendByte_Accely = Encode_bytearray(mpuData[1]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg2.data[i] = sendByte_Accely[i];
+    }
+
+    // Accel Z 4th Frame
+    unsigned char* sendByte_Accelz = Encode_bytearray(mpuData[2]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg3.data[i] = sendByte_Accelz[i];
+    }
   
-    
-  if(millis()-lasttime >= standard_delay){      
-    
-    // // Accel X 2nd Frame
-    // unsigned char* sendByte_Accelx = Encode_bytearray(mpuData[0]);  
-    // for(int i=0 ; i < standard_dlc ; i++){
-    //   canMsg1.data[i] = sendByte_Accelx[i];
-    // }
+    // Gyro X 5th Frame
+    unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg4.data[i] = sendByte_Gyrox[i];
+    }
 
-    
-    // // Accel Y 3rd Frame
-    // unsigned char* sendByte_Accely = Encode_bytearray(mpuData[1]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg2.data[i] = sendByte_Accely[i];
-    // }
+    // Gyro Y 6th Frame
+    unsigned char* sendByte_Gyroy = Encode_bytearray(mpuData[4]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg5.data[i] = sendByte_Gyroy[i];
+    }
 
-
-    // // Accel Z 4th Frame
-    // unsigned char* sendByte_Accelz = Encode_bytearray(mpuData[2]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg3.data[i] = sendByte_Accelz[i];
-    // }
-  // mcp2515.getStatus();
-    // // Gyro X 5th Frame
-    // unsigned char* sendByte_Gyrox = Encode_bytearray(mpuData[3]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg4.data[i] = sendByte_Gyrox[i];
-    // }
-
-    // // Gyro Y 6th Frame
-    // unsigned char* sendByte_Gyroy = Encode_bytearray(mpuData[4]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg5.data[i] = sendByte_Gyroy[i];
-    // }
-
-    // // Gyro Z 7th Frame
-    // unsigned char* sendByte_Gyroz = Encode_bytearray(mpuData[5]);  
-    // for(int i=0 ; i< standard_dlc  ; i++){
-    //   canMsg6.data[i] = sendByte_Gyroz[i];
-    // }
+    // Gyro Z 7th Frame
+    unsigned char* sendByte_Gyroz = Encode_bytearray(mpuData[5]);  
+    for(int i=0 ; i< standard_dlc  ; i++){
+      canMsg6.data[i] = sendByte_Gyroz[i];
+    }
 
     // Use write Interrupt Instead
     // Transmit CAN frame out of mcp2515 TX Buffer
@@ -125,53 +121,106 @@ void loop() {
     // 1st we will receive the RTR packet from esp32 to trigger the fire receive interrupt to trigger a condition to start stream data
     // but we won't use that RTR packet to response back  
     
-
-// // Error Detection
-  uint8_t errorFlags = mcp2515.getErrorFlags();
-    // Serial.println(errorFlags);
+    /* Write Message to TX buffer then let protocol Engine transmit into CAN Bus with Proper Bit timing */
     
-  if (errorFlags & MCP2515::EFLG_TXBO)
-    Serial.println("TX Bus off");
-  if (errorFlags & MCP2515::EFLG_TXEP)
-    Serial.println("TX Error-Passive");
-  if (errorFlags & MCP2515::EFLG_RXEP)
-    Serial.println("RX Error-Passive");
-  if (errorFlags & MCP2515::EFLG_TXWAR)
-    Serial.println("TX Error Warning");
-  if (errorFlags & MCP2515::EFLG_RXWAR)
-    Serial.println("RX Error Warning");
-  if (errorFlags & MCP2515::EFLG_EWARN)
-    Serial.println("Overall Error Warning");
-    
-// RX buffer overflow and anykind of Bus off status
-if (errorFlags & MCP2515::EFLG_RX0OVR)
-    Serial.println("RXB0 overflow error");
-if (errorFlags & MCP2515::EFLG_RX1OVR)
-    Serial.println("RXB1 overflow error");
-if (errorFlags & MCP2515::EFLG_TXBO)
-    Serial.println("Bus-off error");
-
-// Error Handling
-
-
-    mcp2515.sendMessage(&canMsg1);
-    // mcp2515.sendMessage(MCP2515::TXB0 ,&canMsg1);
-    // mcp2515.sendMessage(MCP2515::TXB1 ,&canMsg2);
-    // mcp2515.sendMessage(MCP2515::TXB2 ,&canMsg3);
-
-    // mcp2515.sendMessage(MCP2515::TXB0 ,&canMsg4);
-    // mcp2515.sendMessage(MCP2515::TXB1 ,&canMsg5);
-    // mcp2515.sendMessage(MCP2515::TXB2 ,&canMsg6);    
-    // Serial.println("Messages sent");
-    lasttime = millis(); // reset timer variable
-  }
+    // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
+  if(millis()-last_msg_time >= 10){
+    if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
+      msg_counter = 1;
+      Serial.println("Trigged");
+      last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison  
+    } 
+  }   
   
+    // sending 1st message
+    if ((msg_counter == 1) && (millis() - last_msg_time >= standard_delay)) {
+        // mcp2515.sendMessage(MCP2515::TXB0,&canMsg1);
+        mcp2515.sendMessage(&canMsg1);
+        
+        msg_counter = 2; // Step to Next Msg.
+        last_msg_time = millis();
+      }
 
-//Time for timed Schedule , with Current TWAI CAN low level that I need to config : It is out of scope now.
+     // sending 2nd message 
+    if ((msg_counter == 2) && (millis() - last_msg_time >= standard_delay)) {
+      mcp2515.sendMessage(&canMsg2);
 
+      msg_counter = 3; // Step to Next Msg.
+      last_msg_time = millis();
+    }
+
+    // sending 3rd message
+    if ((msg_counter == 3) && (millis() - last_msg_time >= standard_delay)) {
+      mcp2515.sendMessage(&canMsg3);
+
+      msg_counter = 4; // Step to Next Msg.
+      last_msg_time = millis();
+    }
+
+    // sending 4th message
+    if ((msg_counter == 4) && (millis() - last_msg_time >= standard_delay)) {
+      mcp2515.sendMessage(&canMsg4);
+      msg_counter = 5; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
+      doneFlag = true;
+      last_msg_time = millis();
+    }
+
+    // sending 5th message
+    if ((msg_counter == 5) && (millis() - last_msg_time >= standard_delay)) {
+      mcp2515.sendMessage(&canMsg4);
+      msg_counter = 6; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
+      doneFlag = true;
+      last_msg_time = millis();
+    }
+
+    // sending 5th message
+    if ((msg_counter == 6) && (millis() - last_msg_time >= standard_delay)) {
+      mcp2515.sendMessage(&canMsg4);
+      msg_counter = 0; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
+      doneFlag = true;
+      last_msg_time = millis();
+    }
+
+    /* sending Done Flag to signal Head unit to sent The trigger again */
+    if ((doneFlag == true) && (millis() - last_msg_time >= 10)) {
+      doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'A';
+      mcp2515.sendMessage(&doneMsg);
+      doneFlag = false;
+      last_msg_time = millis();
+    }
+    
+// Error Handling
   
 }
 
+// CAN Error Flag Detection , (and Error Frame Detection + TEC REC counter)
+void mcp2515Error(){
+  // Error Detection , by getting Error Flag. 
+  uint8_t errorFlags = mcp2515.getErrorFlags();
+
+  if (errorFlags & MCP2515::EFLG_TXBO)
+      Serial.println("TX Bus off");
+  if (errorFlags & MCP2515::EFLG_TXEP)
+      Serial.println("TX Error-Passive");
+  if (errorFlags & MCP2515::EFLG_RXEP)
+      Serial.println("RX Error-Passive");
+  if (errorFlags & MCP2515::EFLG_TXWAR)
+      Serial.println("TX Error Warning");
+  if (errorFlags & MCP2515::EFLG_RXWAR)
+      Serial.println("RX Error Warning");
+  if (errorFlags & MCP2515::EFLG_EWARN)
+    Serial.println("Overall Error Warning");
+
+  // Buffer Overflow Error
+  if (errorFlags & MCP2515::EFLG_RX0OVR)
+      Serial.println("RXB0 overflow error");
+  if (errorFlags & MCP2515::EFLG_RX1OVR)
+      Serial.println("RXB1 overflow error");
+  
+  /* Error Confinement Counter*/
+  // uint8_t REC = mcp2515.errorCountRX();
+  // uint8_t TEC = mcp2515.errorCountTX();
+}
 
 unsigned char *Encode_bytearray(float f) {
     // Use memcpy to copy the bytes of the float into the array

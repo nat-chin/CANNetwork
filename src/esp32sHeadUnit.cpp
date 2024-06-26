@@ -12,15 +12,12 @@ extern "C"{
 #define TX_GPIO_NUM   23  // Connects to CTX
 #define RX_GPIO_NUM   22  // Connects to CRX
 #define standard_bitrate 125E3
-#define standard_delay 100
+#define standard_delay 90
 #define standard_dlc 4
 unsigned long lasttime =0;
 
 //==================================================================================//
 volatile bool interrupt = false;
-void IRAM_ATTR IRQ_HANDLER() {
-  interrupt = true;
-}
 
 
 void canSender(); void canReceiver();
@@ -59,9 +56,6 @@ void setup() {
   // In reality I need only 10 ID range
   CAN.filter(0x10,0x10);
 
-  // Send packet of ID 0x01 to signal all Non-Head unit Node to Starts streaming Sensor Data
-  // canSender();
-
   // Enable The All interrupt source for proper Error Handling ( TX , RX Interrupt is The most essential )
   //  uint32_t alerts_to_enable = TWAI_ALERT_TX_IDLE           // Transmit buffer is idle
   //                         | TWAI_ALERT_TX_SUCCESS        // Transmission successfully completed
@@ -85,15 +79,12 @@ void setup() {
 
     // attachInterrupt(digitalPinToInterrupt(), IO_INT_ISR, FALLING); // (Interrupt pin being pull down after event detect)
     // what is interrupt pin of twai wth
+
+  canNodeTrigger(0x01); // Initiate all CAN bus Node with 1st Trigger
 }
 
-
-// Receiving & Record Data to Local SD Card
-
-
-
 unsigned char message[4];
-
+volatile bool doneflag = false;
 void loop() {
 
   // twai_message_t message;
@@ -119,9 +110,9 @@ void loop() {
   //           printf("TWAI bus error occurred\n");
   //       }
   //   }
-
-  if(millis()-lasttime >= standard_delay){
-    canReceiver(); // Read from RX buffer Per Iteration  (Now trying to do multiple transmission)
+  
+  if(millis()-lasttime >= standard_delay){ // 90 millis delay for 10 messages
+    canReceiver(); // Read data from RX buffer Per Iteration (Per message transmission delay)
 
     /*Decode Message back to 4 byte float */
     float receiveFloat = Decode_bytearray(message);
@@ -138,16 +129,26 @@ void loop() {
       Serial.print(',');
     } Serial.println();
 
-    // Serial.println();
-   
-
-    /* Function to Record all data to local SD card in CSV format (Optional) */
-
+    lasttime = millis();
+  }
+  // Send packet of ID 0x01 to signal all Non-Head unit Node to Starts streaming Sensor Data
+  // Trigger Non Header CAN node
+  // Two 1st message will be   
+  // This will always read from buffer and clear a buffer !!! (Shouldn't be)
+  if(millis()-lasttime >= standard_delay + 10){
+    canReceiver(); // Read the last data (Done flag sent by every Node After Their Transmission is done)
+    if(message[0] = 'A') // Message A mean NodeA is Finsihed, Trigger NodeB
+      canNodeTrigger(0x02);
+    else if(message[0] = 'B') // Message B mean The opposite
+      canNodeTrigger(0x01);
     lasttime = millis();
   }
 }
 /* Sample of Received Bit */
+// Blynk API code
 
+
+/* Function to Record all data to local SD card in CSV format (Optional) */
 
 unsigned char *Encode_bytearray(float f) {
     // Use memcpy to copy the bytes of the float into the array
@@ -204,22 +205,12 @@ void canReceiver() {
   // else{ Serial.println("NO Packet");}
 }
 
-void canSender() {
-  Serial.print ("Sending RTR packet to start the System ... ");
-  // CAN.beginPacket (0x12);  //sets the ID and clears the transmit buffer
-  // // CAN.beginExtendedPacket(0xabcdef);
-  // CAN.write ('1'); //write data to buffer. data is not sent until endPacket() is called.
-  // CAN.endPacket();
-
-  //RTR packet with a requested data length
-  // RTR sends empty packet and request some data length back
-  CAN.beginPacket (0x01, 1, true);
-  CAN.write('W');
+void canNodeTrigger(uint16_t ID) {
+  Serial.print ("Sending Trigger to start the System ... ");
+  CAN.beginPacket (ID, 1, false);
+  CAN.write('T');
   CAN.endPacket();
-
   Serial.println ("done");
-
-  // delay(1000);
 }
 
 //==================================================================================//

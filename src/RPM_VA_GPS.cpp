@@ -1,8 +1,7 @@
-#include <ArduinoSTL.h> // C standard Libs
+#include <ArduinoSTL.h> // C standard Libs , already include Arduino.h
 
 #include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
-
 static const int TXPin = 6, RXPin = 7;
 static const uint32_t GPSBaud = 9600;
 
@@ -16,10 +15,11 @@ SoftwareSerial ss(RXPin, TXPin);
   #include <SPI.h>
   #include <mcp2515.h> 
   #define standard_bitrate CAN_125KBPS
-  #define standard_delay 100
+  #define standard_delay 90
   #define standard_dlc 4
   MCP2515 mcp2515(10, MCP_8MHZ);
-  struct can_frame canMsg1, canMsg2, canMsg3 ,canMsg4,canMsg5; // CAN frame format
+  struct can_frame trgMsg; // CAN frame Received From Headunit
+  struct can_frame canMsg1, canMsg2, canMsg3 ,canMsg4, doneMsg; ; // CAN frame Transmit to Headunit
 
 /*  Rotary Encoder (Will change Code to Motor Encoder Later) */
   #define CLK 4 // Input B
@@ -29,107 +29,145 @@ SoftwareSerial ss(RXPin, TXPin);
   int currentStateCLK; int lastStateCLK;
   char currentDir = ' '; // Consider CW as +
 
-  // /* Voltage and Current Sense from Battery */
-//   #define AmpsPin A11
-//   #define VoltsPin A0
+/* Current Drawn to Motor */
+  #define AmpsPin A0
 
-  volatile bool interrupt = false;
 void resetEncoder(){
       counter = 0 ;
       currentDir = ' ';
 }
 
-void IRQ_HANDLER(){
-  interrupt = true;
- }
 
 static void smartDelay(unsigned long ms);
 unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
 
 void setup() {
-  Serial.begin(115200);
-  ss.begin(GPSBaud);
+  Serial.begin(115200); ss.begin(GPSBaud);
+  pinMode(LED_BUILTIN,OUTPUT); digitalWrite(LED_BUILTIN,0);
 
   /*  Encoder init  */
     // Set encoder pins as inputs
     pinMode(CLK,INPUT); pinMode(DT,INPUT); pinMode(SW, INPUT_PULLUP);
     // Read the initial state of CLK
     lastStateCLK = digitalRead(CLK);
+    attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
 
   /*  mcp2515 init  */
     while (!Serial); // halt communication if Uart Serial port isn't available
     mcp2515.reset();
-    mcp2515.setBitrate(standard_bitrate); //Set Bit rate to 500KBPS (Need to match with target device)
+    mcp2515.setBitrate(standard_bitrate,MCP_8MHZ); //Set Bit rate to 500KBPS (Need to match with target device)
     mcp2515.setNormalMode();
+
   /* Set CAN Frame struct.*/
     canMsg1.can_id  = 0x10; // 11 bit identifier(standard CAN)
     canMsg2.can_id  = 0x11; 
     canMsg3.can_id  = 0x12; 
-    canMsg4.can_id  = 0x13;
-    canMsg5.can_id  = 0x14;  
-    canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = canMsg4 = standard_dlc;
+    canMsg4.can_id  = 0x13; 
+    canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = canMsg4.can_dlc = standard_dlc;
 
+    doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'A';
   //Set Mask and Filter Receiving of ID to receive only from Head unit , using only RXB0 
-    // mcp2515.setFilter(MCP2515::RXF0, false, 0x01); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
-
-  attachInterrupt(digitalPinToInterrupt(SW), resetEncoder, FALLING); // (Switch is activelow in this case)
-  attachInterrupt(digitalPinToInterrupt(2), IRQ_HANDLER, FALLING); // (Interrupt pin being driven low when fired)
+    mcp2515.setFilter(MCP2515::RXF0, false, 0x01); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
+  // Somehow Setting Filter make this device not transmit.
 }
 
+// CAN message Scheduling
+// volatile bool trigger = false;   
+volatile uint8_t msg_counter = 0; // will be set to one after the 1st trigger 
+unsigned long last_msg_time = 0; // get this out the loop
+volatile bool doneFlag = false;
 
 void loop() {
-  readEncoder();
-  smartDelay(standard_delay); // 100 ms delay for feeding gps object (This delay doesn't affect MCU operation)
-  unsigned char *sendByteRPM = Encode_bytearray(lat);
+  // Error Detection Code (If Error is not showing , put this function after every time we Write To TX buffer)
+  mcp2515Error();
+  readEncoder(); 
+
+  
   
   // RPM 1st Frame
+  uint8_t *sendByteRPM = Encode_bytearray(counter);
   for(int i = 0; i< standard_dlc; i++){
-      canMsg1.data[i] = sendByteLat[i];
-    }
-
-  // unsigned char *sendByteVolt = Encode_bytearray();
-  // unsigned char *sendByteAmp = Encode_bytearray();
+      canMsg1.data[i] = sendByteRPM[i];
+  }
+  // Motor Amp 2nd Frame
+  uint8_t *sendByteAmp = Encode_bytearray(readCurrent());
+  for(int i = 0; i< standard_dlc; i++){
+      canMsg2.data[i] = sendByteRPM[i];
+  }
   
-    // Longitude (2nd frame)
+  // GPS Decoding , and Sending
+  smartDelay(standard_delay); // 90 ms Timer delay for feeding gps object
   if(gps.location.isValid()){
-
     // Encode integer and floating point of both lat long , 4 byte each , precision point of 1e7
     float lat = gps.location.lat();
     float lng = gps.location.lng();
     
-    unsigned char *sendByteLat = Encode_bytearray(lat);
-    unsigned char *sendByteLng = Encode_bytearray(lng);
+    // Latitude (3rd frame)
+    uint8_t *sendByteLat = Encode_bytearray(lat);
+    for(int i = 0; i< standard_dlc; i++){
+      canMsg3.data[i] = sendByteLat[i];
+    }
+    // Longitude (4th frame)
+    uint8_t *sendByteLng = Encode_bytearray(lng);
+    for(int i = 0; i< standard_dlc; i++){
+      canMsg4.data[i] = sendByteLng[i];
+    }
+  }
+  // Failure GPS will print the following (5 ms of not Receiving the GPS)
+  if (millis() > 5000 && gps.charsProcessed() < 10) {
+    Serial.println(F("No GPS data received: check wiring"));
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Blinking
+  }
+
+  /* Write Message to TX buffer then let protocol Engine transmit into CAN Bus with Proper Bit timing */
     
-    // /* Display result  */
-    //   Serial.print("Latitude (Deg.): ");
-    //   Serial.println(lat,7);
-    //   for(int i = 0; i < standard_dlc; i++){
-    //     Serial.print(sendByteLat[3-i]);
-    //     Serial.print(',');
-    //   } 
-    //   Serial.println();
+    // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
+    if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK && !msg_counter) { 
+      msg_counter = 1;
+      last_msg_time = millis();   
+    }    
 
-    //   for(int i = 0; i < standard_dlc; i++){
-    //     Serial.print(sendByteLat[3-i],HEX);
-    //     Serial.print(',');
-    //   } 
-    //   Serial.println();
- 
-    // Latitude (1st frame)
-    for(int i = 0; i< standard_dlc; i++){
-      canMsg4.data[i] = sendByteLat[i];
+    // sending 1st message
+    if ((msg_counter == 1) && (millis() - last_msg_time > standard_delay)) {
+        mcp2515.sendMessage(MCP2515::TXB0,&canMsg1);
+         
+        msg_counter = 2; // Step to Next Msg.
+        last_msg_time = millis();
+      }
+     // sending 2nd message 
+     if ((msg_counter == 2) && (millis() - last_msg_time > standard_delay)) {
+        mcp2515.sendMessage(MCP2515::TXB1,&canMsg2);
+
+        msg_counter = 3; // Step to Next Msg.
+        last_msg_time = millis();
+      }
+    // sending 3rd message
+    if ((msg_counter == 3) && (millis() - last_msg_time > standard_delay)) {
+      mcp2515.sendMessage(MCP2515::TXB0,&canMsg3);
+
+      msg_counter = 4; // Step to Next Msg.
+      last_msg_time = millis();
     }
-    // Longitude (2nd frame)
-    for(int i = 0; i< standard_dlc; i++){
-      canMsg5.data[i] = sendByteLng[i];
+    // sending 4th message
+    if ((msg_counter == 4) && (millis() - last_msg_time > standard_delay)) {
+      mcp2515.sendMessage(MCP2515::TXB1, &canMsg4);
+
+      msg_counter = 0; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
+      doneFlag = true;
+      last_msg_time = millis();
     }
+    /* sending Done Flag */
+    if ((doneFlag == true) && (millis() - last_msg_time > 10)) {
+      mcp2515.sendMessage(MCP2515::TXB2, &doneMsg);
+      last_msg_time = millis();
+    }
+}
 
-    // RPM 3rd Frame
+// CAN Error Flag Detection , (and Error Frame Detection + TEC REC counter)
+void mcp2515Error(){
+  // Error Detection , by getting Error Flag. 
+  uint8_t errorFlags = mcp2515.getErrorFlags();
 
-    // Voltage
-
-      // Error Detection , by getting Error Flag. 
-      uint8_t errorFlags = mcp2515.getErrorFlags();
   if (errorFlags & MCP2515::EFLG_TXBO)
       Serial.println("TX Bus off");
   if (errorFlags & MCP2515::EFLG_TXEP)
@@ -143,32 +181,15 @@ void loop() {
   if (errorFlags & MCP2515::EFLG_EWARN)
     Serial.println("Overall Error Warning");
 
-      
-
+  // Buffer Overflow Error
   if (errorFlags & MCP2515::EFLG_RX0OVR)
       Serial.println("RXB0 overflow error");
   if (errorFlags & MCP2515::EFLG_RX1OVR)
       Serial.println("RXB1 overflow error");
-  if (errorFlags & MCP2515::EFLG_TXBO)
-      Serial.println("Bus-off error");
-
-    // Transmit CAN frame out of mcp2515 FIFO Buffer then transmit into CAN Bus
-    // mcp2515.sendMessage(&canMsg1);
-    // mcp2515.sendMessage(&canMsg2);   
-
-    // May add some Acknowledgement functionality
-    /*
-    
-    */
-    
-  }
-
-  // Failure GPS will print the following
-  if (millis() > 5000 && gps.charsProcessed() < 10) {
-    Serial.println(F("No GPS data received: check wiring"));
-    // Error Handing of CAN frame
-
-  }
+  
+  /* Error Confinement Counter*/
+  // uint8_t REC = mcp2515.errorCountRX();
+  // uint8_t TEC = mcp2515.errorCountTX();
 }
 
 unsigned char *Encode_bytearray(float f) {
@@ -190,7 +211,8 @@ float Decode_bytearray(unsigned char* c) {
 static void smartDelay(unsigned long ms) {
   unsigned long start = millis();
 
-  // Execute command in do{} while milis-start < input ms. The condition is deemed to be false after milis and start difference grow past ms
+  // Execute command in do{} while milis-start < input ms. 
+  // The condition is deemed to be false after milis and start difference grow past ms
   do {
     // if available, read NMEA and encode to TinyGPS+ instance for fine format.
     while (ss.available()) 
@@ -223,18 +245,18 @@ void readEncoder() {
 	lastStateCLK = currentStateCLK;
 }
 
-// float readCurrent() {
-//   /*---------Current Calculation--------------*/
-//   float voltage_offset = 5000.0/2.0; // in mV Can be other value if we more voltage is applied in Series measurement
-//   float Vhall = 0.0; // Induced voltage from Hall effect sensor
-//   float mVperAmp = 100.0; // Sensitivity from sensor mV/A (20A model variant)
-//   float current = 0.0;
+float readCurrent() {
+  /*---------Current Calculation--------------*/
+  float voltage_offset = 5000.0/2.0; // in mV Can be other value if we more voltage is applied in Series measurement
+  float Vhall = 0.0; // Induced voltage from Hall effect sensor
+  float mVperAmp = 100.0; // Sensitivity from sensor mV/A (20A model variant)
+  float current = 0.0;
 
-//   Vhall = analogRead(AmpsPin)* 5000.0 / 1023.0; 
-//   current = ((Vhall - voltage_offset) / mVperAmp); 
-//   // The offset when Current sensor ACS712 sense no current is Vcc/2 , and the measured Vhall is with respect to that point , we need to subtract that out 
-//   return current;
-// }
+  Vhall = analogRead(AmpsPin)* 5000.0 / 1023.0; 
+  current = ((Vhall - voltage_offset) / mVperAmp); 
+  // The offset when Current sensor ACS712 sense no current is Vcc/2 , and the measured Vhall is with respect to that point , we need to subtract that out 
+  return current;
+}
 
 // float readVoltage() { 
 //   float Vsignal = 0.0; // Voltage from divider
@@ -248,3 +270,19 @@ void readEncoder() {
 //   Vin = Vsignal / dividerRatio; 
 //   return Vin;
 // }
+
+
+// /* Display result  */
+    //   Serial.print("Latitude (Deg.): ");
+    //   Serial.println(lat,7);
+    //   for(int i = 0; i < standard_dlc; i++){
+    //     Serial.print(sendByteLat[3-i]);
+    //     Serial.print(',');
+    //   } 
+    //   Serial.println();
+
+    //   for(int i = 0; i < standard_dlc; i++){
+    //     Serial.print(sendByteLat[3-i],HEX);
+    //     Serial.print(',');
+    //   } 
+    //   Serial.println();
