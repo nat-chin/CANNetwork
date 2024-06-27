@@ -32,7 +32,7 @@
   #define AmpsPin A0
 
 
-static void smartDelay(unsigned long ms); float readCurrent(); void readEncoder(); void resetEncoder();
+float readCurrent(); void readEncoder(); void resetEncoder();
 unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
 void mcp2515Error();
 
@@ -58,8 +58,7 @@ void setup() {
     canMsg3.can_id  = 0x12; canMsg4.can_id  = 0x13; 
     canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = canMsg4.can_dlc = standard_dlc;
 
-    // Msg to Signal HeadUnit When all Packet is successfully sent.
-    doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'A';
+    
   
   //Set Mask and Filter Receiving of ID to receive only from Head unit , using only RXB0 
   // mcp2515.setFilter(MCP2515::RXF0, false, 0x01); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
@@ -75,33 +74,35 @@ void loop() {
   // Error Detection Code (If Error is not showing , put this function after every time we Write To TX buffer)
   mcp2515Error();
   // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
-  if(millis()-last_msg_time >=0){
-    if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
-      // Manual Filter , since Acceptance Filter doesn't work
-      if(trgMsg.can_id == AcceptedTriggerID){
-        Serial.print(trgMsg.can_id);
-        msg_counter = 1; 
-        Serial.println("Trigged");}
-      
-      last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison   
-    }
-    // last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison
+  if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
+    // Manual Filter , since Acceptance Filter doesn't work
+    if(trgMsg.can_id == AcceptedTriggerID){
+      Serial.print(trgMsg.can_id);
+      msg_counter = 1; 
+      Serial.println("Node A Triggered");} 
   }
 
 
   /* Read Motor RPM */
     readEncoder(); 
+    // float motorcurrent = readCurrent();
+    float motorcurrent = 0.0;
     // RPM 1st Frame
     uint8_t *sendByteRPM = Encode_bytearray(counter);
     for(int i = 0; i< standard_dlc; i++){
-        canMsg1.data[i] = sendByteRPM[i]; }
+        canMsg1.data[i] = sendByteRPM[i]; 
+        // Serial.print(sendByteRPM[i]);
+        } 
+        // Serial.println();
+
     // Motor Amp 2nd Frame
-    uint8_t *sendByteAmp = Encode_bytearray(readCurrent());
+    uint8_t *sendByteAmp = Encode_bytearray(motorcurrent);
     for(int i = 0; i< standard_dlc; i++){
         canMsg2.data[i] = sendByteAmp[i];}
   
   /* Read GPS Data */
-    smartDelay(standard_delay); // 80 ms Timer delay for feeding gps object
+    while (ss.available()) 
+      gps.encode(ss.read());
     if(gps.location.isValid()){
       // Encode integer and floating point of both lat long , 4 byte each , precision point of 1e7
       float lat = gps.location.lat();
@@ -124,8 +125,6 @@ void loop() {
 
   /* Write Message to TX buffer then let protocol Engine transmit into CAN Bus with Proper Bit timing */
     
-        
-
   // sending 1st message
   if ((msg_counter == 1) && (millis() - last_msg_time >= standard_delay)) {
 
@@ -165,6 +164,8 @@ void loop() {
 
   /* sending Done Flag to signal Head unit to sent The trigger again */
   if ((doneFlag == true) && (millis() - last_msg_time >= standard_delay)) {
+    // Msg to Signal HeadUnit When all Packet is successfully sent.
+    doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'A';
     mcp2515.sendMessage(&doneMsg);
     Serial.println("Done Flag A Sent");
     doneFlag = false;
@@ -216,21 +217,6 @@ float Decode_bytearray(unsigned char* c) {
     return f;
 }
 
-/* Custom BlinkWithout Delay Code that ensures the gps object is being fed by UART reading on time. and contain read function itself */
-static void smartDelay(unsigned long ms) {
-  unsigned long start = millis();
-
-  // Execute command in do{} while milis-start < input ms. 
-  // The condition is deemed to be false after milis and start difference grow past ms
-  do {
-    // if available, read NMEA and encode to TinyGPS+ instance for fine format.
-    while (ss.available()) 
-      gps.encode(ss.read());
-  } 
-  while (millis() - start < ms);
-}
-
-
 // Rotary Encoder need debouncing , as spinning to fast generate noise
 
 void readEncoder() {
@@ -267,16 +253,3 @@ float readCurrent() {
   // The offset when Current sensor ACS712 sense no current is Vcc/2 , and the measured Vhall is with respect to that point , we need to subtract that out 
   return current;
 }
-
-// float readVoltage() { 
-//   float Vsignal = 0.0; // Voltage from divider
-//   float Vin = 0.0; // Actual voltage measured , which is voltage across our divider circuit
-//   float dividerRatio = (7500.0/(30000.0+7500.0)); // Voltage divider Calculation (R2/R1+R2) unit ohms
-//   float ref_voltage = 5.0; // Default Analog Reference Voltage of Arduino UNO R3 (reference)
-
-//   // Convert the read value with the scale of 5/1023 since ADC produce digital voltage that is pulled from MCU power rail, not the measured voltage
-//   Vsignal = analogRead(VoltsPin) * (ref_voltage/ 1023.0); 
-//   // The read value will be 1/5 of the measured voltage, Revert back to original voltage we divide by the Divider ratio , or times 5
-//   Vin = Vsignal / dividerRatio; 
-//   return Vin;
-// }

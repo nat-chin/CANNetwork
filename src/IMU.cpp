@@ -26,7 +26,7 @@
 //   interrupt = true;
 // }
 
-float* readMPU();  
+float* readMPU(); void mcp2515Error(); 
 void readEncoder(); void resetEncoder(); 
 unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
 
@@ -61,15 +61,10 @@ void setup() {
   canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = standard_dlc;
   canMsg4.can_dlc = canMsg5.can_dlc = canMsg6.can_dlc = standard_dlc; 
 
-  doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'B';
-  // // Dummy data for test
-  // canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = 1;
-  // canMsg1.data[0] = 0x01; canMsg2.data[0] = 0x02; canMsg3.data[0] = 0x03;
 
   //Set Mask and Filter Receiving of ID to receive only from Head unit , using only RXB0 
-  mcp2515.setFilter(MCP2515::RXF0, false, 0x02); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
+  // mcp2515.setFilter(MCP2515::RXF0, false, 0x02); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
 
-  // Some how Setting Receive filter makes this shit don't transmit??
 } 
 
 // CAN message Scheduling
@@ -79,7 +74,17 @@ unsigned long last_msg_time = 0; // get this out the loop
 volatile bool doneFlag = false;
 
 void loop() { 
-  
+
+  mcp2515Error();
+  // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
+  if(millis()-last_msg_time >= 10){
+    if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
+      if(trgMsg.can_id == AcceptedTriggerID){
+        msg_counter = 1; }
+      Serial.println("Node B Triggered");
+      last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison  
+    } 
+  }  
   float* mpuData = readMPU();  
     
     // Accel X 2nd Frame
@@ -120,71 +125,68 @@ void loop() {
     
   /* Write Message to TX buffer then let protocol Engine transmit into CAN Bus with Proper Bit timing */
     
-  // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
-  if(millis()-last_msg_time >= 10){
-    if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
-      if(trgMsg.can_id == AcceptedTriggerID){
-        msg_counter = 1; }
-      Serial.println("Trigged");
-      last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison  
-    } 
-  }   
+   
   
-    // sending 1st message
-    if ((msg_counter == 1) && (millis() - last_msg_time >= standard_delay)) {
-        // mcp2515.sendMessage(MCP2515::TXB0,&canMsg1);
-        mcp2515.sendMessage(&canMsg1);
-        
-        msg_counter = 2; // Step to Next Msg.
-        last_msg_time = millis();
-    }
+  if ((msg_counter == 1) && (millis() - last_msg_time >= standard_delay)) {
 
-     // sending 2nd message 
-    if ((msg_counter == 2) && (millis() - last_msg_time >= standard_delay)) {
-      mcp2515.sendMessage(&canMsg2);
+  mcp2515.sendMessage(&canMsg1);
+  Serial.println("Sent 1");
+  msg_counter = 2; // Step to Next Msg.
+  last_msg_time = millis();
+  }
 
-      msg_counter = 3; // Step to Next Msg.
-      last_msg_time = millis();
-    }
+  // sending 2nd message 
+  if ((msg_counter == 2) && (millis() - last_msg_time >= standard_delay)) {
 
-    // sending 3rd message
-    if ((msg_counter == 3) && (millis() - last_msg_time >= standard_delay)) {
-      mcp2515.sendMessage(&canMsg3);
+    mcp2515.sendMessage(&canMsg2);
+    Serial.println("Sent 2");
+    msg_counter = 3; // Step to Next Msg.
+    last_msg_time = millis();
+  }
 
-      msg_counter = 4; // Step to Next Msg.
-      last_msg_time = millis();
-    }
+  // sending 3rd message
+  if ((msg_counter == 3) && (millis() - last_msg_time >= standard_delay)) {
 
-    // sending 4th message
-    if ((msg_counter == 4) && (millis() - last_msg_time >= standard_delay)) {
-      mcp2515.sendMessage(&canMsg4);
-      msg_counter = 5; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
-      doneFlag = true;
-      last_msg_time = millis();
-    }
+    mcp2515.sendMessage(&canMsg3);
+    Serial.println("Sent 3");
+    msg_counter = 4; // Step to Next Msg.
+    last_msg_time = millis();
+  }
 
-    // sending 5th message
-    if ((msg_counter == 5) && (millis() - last_msg_time >= standard_delay)) {
-      mcp2515.sendMessage(&canMsg4);
-      msg_counter = 6; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
-      doneFlag = true;
-      last_msg_time = millis();
-    }
+  // sending 4th message
+  if ((msg_counter == 4) && (millis() - last_msg_time >= standard_delay)) {
 
-    // sending 5th message
-    if ((msg_counter == 6) && (millis() - last_msg_time >= standard_delay)) {
-      mcp2515.sendMessage(&canMsg4);
-      msg_counter = 0; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
-      doneFlag = true;
-      last_msg_time = millis();
-    }
+    mcp2515.sendMessage(&canMsg4);
+    Serial.println("Sent 4");
+    msg_counter = 5; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
+    last_msg_time = millis();
+  }
 
-    /* sending Done Flag to signal Head unit to sent The trigger again */
-    if ((doneFlag == true) && (millis() - last_msg_time >= 10)) {
-      mcp2515.sendMessage(&doneMsg);
-      doneFlag = false;
-      last_msg_time = millis();
-    }
+  // sending 5th message
+  if ((msg_counter == 5) && (millis() - last_msg_time >= standard_delay)) {
+    mcp2515.sendMessage(&canMsg5);
+    Serial.println("Sent 5");
+    msg_counter = 6; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
+    last_msg_time = millis();
+  }
+
+  // sending 5th message
+  if ((msg_counter == 6) && (millis() - last_msg_time >= standard_delay)) {
+    mcp2515.sendMessage(&canMsg6);
+    Serial.println("Sent 6");
+    msg_counter = 0; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
+    doneFlag = true;
+    last_msg_time = millis();
+  }
+
+  /* sending Done Flag to signal Head unit to sent The trigger again */
+  if ((doneFlag == true) && (millis() - last_msg_time >= standard_delay)) {
+    doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'B';
+    mcp2515.sendMessage(&doneMsg);
+    Serial.println("Done Flag B Sent");
+    doneFlag = false;
+    last_msg_time = millis();
+  }
     
 // Error Handling
   

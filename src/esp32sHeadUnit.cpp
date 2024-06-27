@@ -12,7 +12,7 @@ extern "C"{
 #define TX_GPIO_NUM   23  // Connects to CTX
 #define RX_GPIO_NUM   22  // Connects to CRX
 #define standard_bitrate 125E3
-#define standard_delay 90
+#define standard_delay 80
 #define standard_dlc 4
 
 //==================================================================================//
@@ -21,7 +21,7 @@ volatile bool interrupt = false;
 
 void canReceiver();
 unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
-void canNodeTrigger(uint16_t ID);
+// void canNodeTrigger(uint16_t ID);
 
 void setup() {
   Serial.begin (115200);
@@ -46,7 +46,7 @@ void setup() {
   // Okay let's use single filter for now  (32 bit Acceptance)
   CAN.filter(0x10,0x10); // 0x10-0x1F
 
-  // delay(10); // Proper Delay should be used , (Not Exceeding standard delay on Sender Side)
+  delay(30); // Proper Delay should be used , (Not Exceeding standard delay on Sender Side)
   Serial.print ("Sending Trigger to start the System ... ");
   CAN.beginPacket (0x01, 1, false); CAN.write(123); CAN.endPacket();
   Serial.println ("done");
