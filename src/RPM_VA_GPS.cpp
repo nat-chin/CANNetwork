@@ -1,26 +1,25 @@
 #include <ArduinoSTL.h> // C standard Libs , already include Arduino.h
 
-#include <TinyGPSPlus.h>
-#include <SoftwareSerial.h>
-static const int TXPin = 6, RXPin = 7;
-static const uint32_t GPSBaud = 9600;
-
-// The TinyGPSPlus object
-TinyGPSPlus gps;
-
-// The serial connection to the GPS device
-SoftwareSerial ss(RXPin, TXPin);
+/* GPS init */
+  #include <TinyGPSPlus.h>
+  #include <SoftwareSerial.h>
+  static const int TXPin = 6, RXPin = 7;
+  TinyGPSPlus gps;
+  // The serial connection to the GPS device
+  SoftwareSerial ss(RXPin, TXPin);
 
 /* mcp2515 init */
   #include <SPI.h>
   #include <mcp2515.h> 
   #define standard_bitrate CAN_125KBPS
-  #define standard_delay 90
+  #define standard_delay 80
   #define standard_dlc 4
-  MCP2515 mcp2515(10, MCP_8MHZ);
-  struct can_frame trgMsg; // CAN frame Received From Headunit
+  MCP2515 mcp2515(10);
   struct can_frame canMsg1, canMsg2, canMsg3 ,canMsg4, doneMsg; ; // CAN frame Transmit to Headunit
 
+  #define AcceptedTriggerID 0x01
+  struct can_frame trgMsg; // CAN frame Received From Headunit
+  
 /*  Rotary Encoder (Will change Code to Motor Encoder Later) */
   #define CLK 4 // Input B
   #define DT 5 // Input A
@@ -32,17 +31,13 @@ SoftwareSerial ss(RXPin, TXPin);
 /* Current Drawn to Motor */
   #define AmpsPin A0
 
-void resetEncoder(){
-      counter = 0 ;
-      currentDir = ' ';
-}
 
-
-static void smartDelay(unsigned long ms);
+static void smartDelay(unsigned long ms); float readCurrent(); void readEncoder(); void resetEncoder();
 unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
+void mcp2515Error();
 
 void setup() {
-  Serial.begin(115200); ss.begin(GPSBaud);
+  Serial.begin(115200); ss.begin(9600);
   pinMode(LED_BUILTIN,OUTPUT); digitalWrite(LED_BUILTIN,0);
 
   /*  Encoder init  */
@@ -55,20 +50,19 @@ void setup() {
   /*  mcp2515 init  */
     while (!Serial); // halt communication if Uart Serial port isn't available
     mcp2515.reset();
-    mcp2515.setBitrate(standard_bitrate,MCP_8MHZ); //Set Bit rate to 500KBPS (Need to match with target device)
+    mcp2515.setBitrate(standard_bitrate,MCP_16MHZ); //Set Bit rate to 500KBPS (Need to match with target device)
     mcp2515.setNormalMode();
 
   /* Set CAN Frame struct.*/
-    canMsg1.can_id  = 0x10; // 11 bit identifier(standard CAN)
-    canMsg2.can_id  = 0x11; 
-    canMsg3.can_id  = 0x12; 
-    canMsg4.can_id  = 0x13; 
+    canMsg1.can_id  = 0x10; canMsg2.can_id  = 0x11; 
+    canMsg3.can_id  = 0x12; canMsg4.can_id  = 0x13; 
     canMsg1.can_dlc = canMsg2.can_dlc = canMsg3.can_dlc = canMsg4.can_dlc = standard_dlc;
 
+    // Msg to Signal HeadUnit When all Packet is successfully sent.
     doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'A';
+  
   //Set Mask and Filter Receiving of ID to receive only from Head unit , using only RXB0 
-    mcp2515.setFilter(MCP2515::RXF0, false, 0x01); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
-  // Somehow Setting Filter make this device not transmit.
+  // mcp2515.setFilter(MCP2515::RXF0, false, 0x01); // Filter for RXB0 , accept ID 0x01 (Head Unit ID)
 }
 
 // CAN message Scheduling
@@ -80,87 +74,102 @@ volatile bool doneFlag = false;
 void loop() {
   // Error Detection Code (If Error is not showing , put this function after every time we Write To TX buffer)
   mcp2515Error();
-  readEncoder(); 
+  // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
+  if(millis()-last_msg_time >=0){
+    if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
+      // Manual Filter , since Acceptance Filter doesn't work
+      if(trgMsg.can_id == AcceptedTriggerID){
+        Serial.print(trgMsg.can_id);
+        msg_counter = 1; 
+        Serial.println("Trigged");}
+      
+      last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison   
+    }
+    // last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison
+  }
 
-  
-  
-  // RPM 1st Frame
-  uint8_t *sendByteRPM = Encode_bytearray(counter);
-  for(int i = 0; i< standard_dlc; i++){
-      canMsg1.data[i] = sendByteRPM[i];
-  }
-  // Motor Amp 2nd Frame
-  uint8_t *sendByteAmp = Encode_bytearray(readCurrent());
-  for(int i = 0; i< standard_dlc; i++){
-      canMsg2.data[i] = sendByteRPM[i];
-  }
-  
-  // GPS Decoding , and Sending
-  smartDelay(standard_delay); // 90 ms Timer delay for feeding gps object
-  if(gps.location.isValid()){
-    // Encode integer and floating point of both lat long , 4 byte each , precision point of 1e7
-    float lat = gps.location.lat();
-    float lng = gps.location.lng();
-    
-    // Latitude (3rd frame)
-    uint8_t *sendByteLat = Encode_bytearray(lat);
+
+  /* Read Motor RPM */
+    readEncoder(); 
+    // RPM 1st Frame
+    uint8_t *sendByteRPM = Encode_bytearray(counter);
     for(int i = 0; i< standard_dlc; i++){
-      canMsg3.data[i] = sendByteLat[i];
-    }
-    // Longitude (4th frame)
-    uint8_t *sendByteLng = Encode_bytearray(lng);
+        canMsg1.data[i] = sendByteRPM[i]; }
+    // Motor Amp 2nd Frame
+    uint8_t *sendByteAmp = Encode_bytearray(readCurrent());
     for(int i = 0; i< standard_dlc; i++){
-      canMsg4.data[i] = sendByteLng[i];
+        canMsg2.data[i] = sendByteAmp[i];}
+  
+  /* Read GPS Data */
+    smartDelay(standard_delay); // 80 ms Timer delay for feeding gps object
+    if(gps.location.isValid()){
+      // Encode integer and floating point of both lat long , 4 byte each , precision point of 1e7
+      float lat = gps.location.lat();
+      float lng = gps.location.lng();
+      
+      // Latitude (3rd frame)
+      uint8_t *sendByteLat = Encode_bytearray(lat);
+      for(int i = 0; i< standard_dlc; i++){
+        canMsg3.data[i] = sendByteLat[i]; }
+      // Longitude (4th frame)
+      uint8_t *sendByteLng = Encode_bytearray(lng);
+      for(int i = 0; i< standard_dlc; i++){
+        canMsg4.data[i] = sendByteLng[i]; }
     }
-  }
-  // Failure GPS will print the following (5 ms of not Receiving the GPS)
-  if (millis() > 5000 && gps.charsProcessed() < 10) {
-    Serial.println(F("No GPS data received: check wiring"));
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Blinking
-  }
+    // Failure GPS will print the following (5 ms of not Receiving the GPS)
+    if (millis() > 5000 && gps.charsProcessed() < 10) {
+      Serial.println(F("No GPS data received: check wiring"));
+      digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Blinking
+    }
 
   /* Write Message to TX buffer then let protocol Engine transmit into CAN Bus with Proper Bit timing */
     
-    // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
-    if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK && !msg_counter) { 
-      msg_counter = 1;
-      last_msg_time = millis();   
-    }    
+        
 
-    // sending 1st message
-    if ((msg_counter == 1) && (millis() - last_msg_time > standard_delay)) {
-        mcp2515.sendMessage(MCP2515::TXB0,&canMsg1);
-         
-        msg_counter = 2; // Step to Next Msg.
-        last_msg_time = millis();
-      }
-     // sending 2nd message 
-     if ((msg_counter == 2) && (millis() - last_msg_time > standard_delay)) {
-        mcp2515.sendMessage(MCP2515::TXB1,&canMsg2);
+  // sending 1st message
+  if ((msg_counter == 1) && (millis() - last_msg_time >= standard_delay)) {
 
-        msg_counter = 3; // Step to Next Msg.
-        last_msg_time = millis();
-      }
-    // sending 3rd message
-    if ((msg_counter == 3) && (millis() - last_msg_time > standard_delay)) {
-      mcp2515.sendMessage(MCP2515::TXB0,&canMsg3);
+    mcp2515.sendMessage(&canMsg1);
+    Serial.println("Sent 1");
+    msg_counter = 2; // Step to Next Msg.
+    last_msg_time = millis();
+  }
 
-      msg_counter = 4; // Step to Next Msg.
-      last_msg_time = millis();
-    }
-    // sending 4th message
-    if ((msg_counter == 4) && (millis() - last_msg_time > standard_delay)) {
-      mcp2515.sendMessage(MCP2515::TXB1, &canMsg4);
+  // sending 2nd message 
+  if ((msg_counter == 2) && (millis() - last_msg_time >= standard_delay)) {
 
-      msg_counter = 0; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
-      doneFlag = true;
-      last_msg_time = millis();
-    }
-    /* sending Done Flag */
-    if ((doneFlag == true) && (millis() - last_msg_time > 10)) {
-      mcp2515.sendMessage(MCP2515::TXB2, &doneMsg);
-      last_msg_time = millis();
-    }
+    mcp2515.sendMessage(&canMsg2);
+    Serial.println("Sent 2");
+    msg_counter = 3; // Step to Next Msg.
+    last_msg_time = millis();
+  }
+
+  // sending 3rd message
+  if ((msg_counter == 3) && (millis() - last_msg_time >= standard_delay)) {
+
+    mcp2515.sendMessage(&canMsg3);
+    Serial.println("Sent 3");
+    msg_counter = 4; // Step to Next Msg.
+    last_msg_time = millis();
+  }
+
+  // sending 4th message
+  if ((msg_counter == 4) && (millis() - last_msg_time >= standard_delay)) {
+
+    mcp2515.sendMessage(&canMsg4);
+    Serial.println("Sent 4");
+    msg_counter = 0; // Reset Back to Bus Off state waiting for Head unit to allow Next Msg.
+    doneFlag = true;
+    last_msg_time = millis();
+  }
+
+  /* sending Done Flag to signal Head unit to sent The trigger again */
+  if ((doneFlag == true) && (millis() - last_msg_time >= standard_delay)) {
+    mcp2515.sendMessage(&doneMsg);
+    Serial.println("Done Flag A Sent");
+    doneFlag = false;
+    last_msg_time = millis();
+  }
 }
 
 // CAN Error Flag Detection , (and Error Frame Detection + TEC REC counter)
@@ -243,7 +252,8 @@ void readEncoder() {
 	}
 	// Remember last CLK state
 	lastStateCLK = currentStateCLK;
-}
+} 
+void resetEncoder(){ counter = 0 ; currentDir = ' ';}
 
 float readCurrent() {
   /*---------Current Calculation--------------*/
@@ -270,19 +280,3 @@ float readCurrent() {
 //   Vin = Vsignal / dividerRatio; 
 //   return Vin;
 // }
-
-
-// /* Display result  */
-    //   Serial.print("Latitude (Deg.): ");
-    //   Serial.println(lat,7);
-    //   for(int i = 0; i < standard_dlc; i++){
-    //     Serial.print(sendByteLat[3-i]);
-    //     Serial.print(',');
-    //   } 
-    //   Serial.println();
-
-    //   for(int i = 0; i < standard_dlc; i++){
-    //     Serial.print(sendByteLat[3-i],HEX);
-    //     Serial.print(',');
-    //   } 
-    //   Serial.println();

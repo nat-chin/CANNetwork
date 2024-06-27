@@ -2,14 +2,17 @@
 #include <ArduinoSTL.h> // C standard Libs , already include Arduino.h
 
 /* mcp2515 init */
-#include <SPI.h>
-#include <mcp2515.h> 
-#define standard_bitrate CAN_125KBPS
-#define standard_delay 100
-#define standard_dlc 4
-MCP2515 mcp2515(10);
-struct can_frame trgMsg; // CAN frame Received From Headunit
-struct can_frame canMsg1, canMsg2, canMsg3 ,canMsg4, canMsg5, canMsg6, doneMsg; ; // CAN frame Transmit to Headunit 
+  #include <SPI.h>
+  #include <mcp2515.h> 
+  #define standard_bitrate CAN_125KBPS
+  #define standard_delay 80
+  #define standard_dlc 4
+  MCP2515 mcp2515(10);
+  struct can_frame canMsg1, canMsg2, canMsg3 ,canMsg4, canMsg5, canMsg6, doneMsg; ; // CAN frame Transmit to Headunit 
+
+  #define AcceptedTriggerID 0x02
+  struct can_frame trgMsg; // CAN frame Received From Headunit
+
 //  1-7 CAN frame
 
 /*  IMU  */
@@ -35,7 +38,7 @@ void setup() {
   /*  mcp2515 init  */
     while (!Serial); // halt communication if Uart Serial port isn't available
     mcp2515.reset();
-    mcp2515.setBitrate(standard_bitrate,MCP_8MHZ); //Set Bit rate to 125KBPS (Need to match with target device)
+    mcp2515.setBitrate(standard_bitrate,MCP_16MHZ); //Set Bit rate to 125KBPS (Need to match with target device)
     mcp2515.setNormalMode();
 
   /*  IMU init  */
@@ -114,19 +117,14 @@ void loop() {
     for(int i=0 ; i< standard_dlc  ; i++){
       canMsg6.data[i] = sendByte_Gyroz[i];
     }
-
-    // Use write Interrupt Instead
-    // Transmit CAN frame out of mcp2515 TX Buffer
-    // Que 6 message into 3 Transmit Buffer manually , therefore send 2 time with delay
-    // 1st we will receive the RTR packet from esp32 to trigger the fire receive interrupt to trigger a condition to start stream data
-    // but we won't use that RTR packet to response back  
     
-    /* Write Message to TX buffer then let protocol Engine transmit into CAN Bus with Proper Bit timing */
+  /* Write Message to TX buffer then let protocol Engine transmit into CAN Bus with Proper Bit timing */
     
-    // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
+  // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
   if(millis()-last_msg_time >= 10){
     if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
-      msg_counter = 1;
+      if(trgMsg.can_id == AcceptedTriggerID){
+        msg_counter = 1; }
       Serial.println("Trigged");
       last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison  
     } 
@@ -139,7 +137,7 @@ void loop() {
         
         msg_counter = 2; // Step to Next Msg.
         last_msg_time = millis();
-      }
+    }
 
      // sending 2nd message 
     if ((msg_counter == 2) && (millis() - last_msg_time >= standard_delay)) {
@@ -183,7 +181,6 @@ void loop() {
 
     /* sending Done Flag to signal Head unit to sent The trigger again */
     if ((doneFlag == true) && (millis() - last_msg_time >= 10)) {
-      doneMsg.can_id  = 0x1F; doneMsg.can_dlc = 1; doneMsg.data[0] = 'A';
       mcp2515.sendMessage(&doneMsg);
       doneFlag = false;
       last_msg_time = millis();

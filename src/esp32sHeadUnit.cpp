@@ -14,16 +14,14 @@ extern "C"{
 #define standard_bitrate 125E3
 #define standard_delay 90
 #define standard_dlc 4
-unsigned long lasttime =0;
 
 //==================================================================================//
 volatile bool interrupt = false;
 
 
-void canSender(); void canReceiver();
+void canReceiver();
 unsigned char *Encode_bytearray(float f); float Decode_bytearray(unsigned char* c);
-float readCurrent(); float readVoltage();
-
+void canNodeTrigger(uint16_t ID);
 
 void setup() {
   Serial.begin (115200);
@@ -32,7 +30,7 @@ void setup() {
 
   while (!Serial); // halt if serial port is not available
   Serial.println ("CAN Receiver/Receiver");
-  delay(500);
+  
   
   // Set the pins
   CAN.setPins (RX_GPIO_NUM, TX_GPIO_NUM);
@@ -42,108 +40,89 @@ void setup() {
     Serial.println ("Starting CAN failed!");
     while (true);
   }
-  else {
-    Serial.println ("CAN Initialized");
-  }
+  else { Serial.println ("CAN Initialized"); }
 
   // TWAI Dual Filter (How to activate???)
-  // 0x10 - 0x17 (First Seven ID) , Mask only two 1st bit as (10)000 ,  0x18 = 11000
-  // CAN.filter(0x10,0x18);
-  // 0x10-0x19 (Last 2 ID) , Mask only 4 1st bit (1100)0 , 0x1E = 11110 
-  // CAN.filter(2,0x18,0x1E);
+  // Okay let's use single filter for now  (32 bit Acceptance)
+  CAN.filter(0x10,0x10); // 0x10-0x1F
 
-  // Okay let's use single filter for now , (Allow all 16 ID range (Whole HEX digit))
-  // In reality I need only 10 ID range
-  CAN.filter(0x10,0x10);
-
-  // Enable The All interrupt source for proper Error Handling ( TX , RX Interrupt is The most essential )
-  //  uint32_t alerts_to_enable = TWAI_ALERT_TX_IDLE           // Transmit buffer is idle
-  //                         | TWAI_ALERT_TX_SUCCESS        // Transmission successfully completed
-  //                         | TWAI_ALERT_RX_DATA           // Message received and added to RX queue
-  //                         | TWAI_ALERT_BELOW_ERR_WARN    // Error warning limit has been reached
-  //                         | TWAI_ALERT_ERR_ACTIVE        // TWAI controller has become error active
-  //                         | TWAI_ALERT_ERR_PASS          // TWAI controller has become error passive
-  //                         | TWAI_ALERT_BUS_ERROR         // Bus error has occurred
-  //                         | TWAI_ALERT_BUS_OFF           // Bus-off condition occurred
-  //                         | TWAI_ALERT_RX_QUEUE_FULL     // RX queue is full
-  //                         | TWAI_ALERT_ARB_LOST          // Arbitration was lost
-  //                         | TWAI_ALERT_RECOVERY_IN_PROGRESS // Bus recovery in progress
-  //                         | TWAI_ALERT_BUS_RECOVERED     // Bus has been recovered
-  //                         | TWAI_ALERT_AND_LOG;          // Enables logging of alerts
-  //   if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
-  //       printf("TWAI alerts enabled\n");
-  //   } else {
-  //       printf("Failed to enable TWAI alerts\n");
-  //       return;
-  //   }
-
-    // attachInterrupt(digitalPinToInterrupt(), IO_INT_ISR, FALLING); // (Interrupt pin being pull down after event detect)
-    // what is interrupt pin of twai wth
-
-  canNodeTrigger(0x01); // Initiate all CAN bus Node with 1st Trigger
+  // delay(10); // Proper Delay should be used , (Not Exceeding standard delay on Sender Side)
+  Serial.print ("Sending Trigger to start the System ... ");
+  CAN.beginPacket (0x01, 1, false); CAN.write(123); CAN.endPacket();
+  Serial.println ("done");
 }
 
+void assignDataToArray(int* destArray, uint8_t* srcData, uint8_t size) {
+    for (int i = 0; i < size; i++) {
+        destArray[i] = srcData[i];
+    }
+}
+
+
+const short canMsgNum = 10;  // Number of arrays buffer correspond to Blynk Virtual Pin
+const short candlc = 4;  // Assuming canMsg.can_dlc is 8
+int blynkData[canMsgNum][candlc];  // Array of arrays to hold data sets
+uint8_t canMsgCount = 0;
+unsigned long lasttime = 0;
 unsigned char message[4];
 volatile bool doneflag = false;
 void loop() {
 
-  // twai_message_t message;
-  // uint32_t alerts_triggered;
+  if(millis()-lasttime >= standard_delay) { // 90 millis delay for 10 messages
+    // Polling from RX Buffer [Better to use Receive Interrupt, but this will suffice , since bus load isn't high]
+    if (CAN.parsePacket()) {
+      
+      uint8_t canMsgID = CAN.packetId();
+      uint8_t canMsgDlc = CAN.packetDlc();
+      uint8_t canMsgbuf[canMsgDlc];
+      // Display Message Content
+      Serial.print ("Packets of id 0x"); Serial.print (canMsgID, HEX);
+      Serial.print (" of length "); Serial.println (canMsgDlc);
 
-  //   // Check for triggered alerts
-  //   if (twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(100)) == ESP_OK) {
-  //       if (alerts_triggered & TWAI_ALERT_RX_DATA) {
-  //           // Message received
-  //           if (twai_receive(&message, pdMS_TO_TICKS(100)) == ESP_OK) {
-  //               // Process the received message
-  //               printf("Message received: ID 0x%lX, DLC %d, Data: ", message.identifier, message.data_length_code);
-  //               for (int i = 0; i < message.data_length_code; i++) {
-  //                   printf("0x%02X ", message.data[i]);
-  //               }
-  //               printf("\n");
-  //           }
-  //       }
-  //       if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
-  //           printf("TWAI controller entered error passive state\n");
-  //       }
-  //       if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
-  //           printf("TWAI bus error occurred\n");
-  //       }
-  //   }
-  
-  if(millis()-lasttime >= standard_delay){ // 90 millis delay for 10 messages
-    canReceiver(); // Read data from RX buffer Per Iteration (Per message transmission delay)
+      /* Only Sample to data that isn't a done flag (Sample data to Buffer Before Blynk) : 0x1F is TX Done Flag 
+      Transfer Current canMsg Buffer to 2D array that Each element is Data Buffer correspond to Blynk Virtual Pin */
+      if(canMsgID != 0x1F){
+        // Read CAN data field Byte by Byte after parsing the message from RX buffer
+        int i = 0; while (CAN.available()){ 
+          canMsgbuf[i] = CAN.read(); // Read , and Clear Rx buffer
+          i++; }
 
-    /*Decode Message back to 4 byte float */
-    float receiveFloat = Decode_bytearray(message);
-    Serial.println(receiveFloat,7);
+        /*Decode Message back to 4 byte float */
+        float receiveFloat = Decode_bytearray(canMsgbuf); Serial.println(receiveFloat,7);
+        assignDataToArray(blynkData[canMsgCount], canMsgbuf,canMsgDlc);
+       
 
-    /* Confirm 4 bytes message each CAN frame*/
-    for (int i = 0; i < 4; i++) {
-      Serial.print(message[3-i],DEC);
-      Serial.print(',');
-    } Serial.println();
+        Serial.print("Data for Each Blynk Virtual Pin: ");
+        for (int i = 0; i< canMsgDlc ; i++){
+          Serial.print(blynkData[canMsgCount][i]); // Let's peek at 1st msg 1st byte , should output 1 
+        } Serial.println();
+        canMsgCount = (canMsgCount + 1) % canMsgNum; // Increment counter fot next Receive interval, reset upon meeting maximum canMsgnum
 
-    for (int i = 0; i < 4; i++) {
-      Serial.print(message[3-i], HEX);
-      Serial.print(',');
-    } Serial.println();
+      } else if(canMsgID == 0x1F){
+        /* Send packet of ID 0x01 to signal all Non-Head unit Node to Starts streaming Sensor Data */
 
-    lasttime = millis();
-  }
-  // Send packet of ID 0x01 to signal all Non-Head unit Node to Starts streaming Sensor Data
-  // Trigger Non Header CAN node
-  // Two 1st message will be   
-  // This will always read from buffer and clear a buffer !!! (Shouldn't be)
-  if(millis()-lasttime >= standard_delay + 10){
-    canReceiver(); // Read the last data (Done flag sent by every Node After Their Transmission is done)
-    if(message[0] = 'A') // Message A mean NodeA is Finsihed, Trigger NodeB
-      canNodeTrigger(0x02);
-    else if(message[0] = 'B') // Message B mean The opposite
-      canNodeTrigger(0x01);
+        // 1. Read from RX buffer when ID = 0x1F
+          int i = 0; while (CAN.available()){ 
+          canMsgbuf[i] = CAN.read(); 
+          Serial.print((char)canMsgbuf[i]);
+          i++; } Serial.println();
+
+        // Message 'A' mean NodeA finished Transmission, Trigger NodeB
+        if(canMsgbuf[0] == 'A'){ 
+          CAN.beginPacket(0x02,1,false); CAN.write(1); CAN.endPacket(); // TrgMsg ID 0x02 : Node B
+          Serial.println("Done Flag Detected A");
+        }
+        // Message B mean NodeB finished Transmission , Trigger NodeA 
+        else if(canMsgbuf[0] == 'B' ){ 
+          CAN.beginPacket(0x01,1,false);CAN.write(1); CAN.endPacket(); // TrgMsg ID 0x01 : Node A
+          Serial.println("Done Flag Detected B");
+        }
+      }
+    }
     lasttime = millis();
   }
 }
+  
 /* Sample of Received Bit */
 // Blynk API code
 
@@ -205,13 +184,28 @@ void canReceiver() {
   // else{ Serial.println("NO Packet");}
 }
 
-void canNodeTrigger(uint16_t ID) {
-  Serial.print ("Sending Trigger to start the System ... ");
-  CAN.beginPacket (ID, 1, false);
-  CAN.write('T');
-  CAN.endPacket();
-  Serial.println ("done");
-}
+
+  // if(millis()-lasttime >= standard_delay){ // 90 millis delay for 10 messages
+  //   canReceiver(); // Read data from RX buffer Per Iteration (Per message transmission delay)
+
+  //   /*Decode Message back to 4 byte float */
+  //   float receiveFloat = Decode_bytearray(message);
+  //   Serial.println(receiveFloat,7);
+
+  //   /* Confirm 4 bytes message each CAN frame*/
+  //   for (int i = 0; i < 4; i++) {
+  //     Serial.print(message[3-i],DEC);
+  //     Serial.print(',');
+  //   } Serial.println();
+
+  //   for (int i = 0; i < 4; i++) {
+  //     Serial.print(message[3-i], HEX);
+  //     Serial.print(',');
+  //   } Serial.println();
+
+  //   lasttime = millis();
+  // }
+
 
 //==================================================================================//
 
