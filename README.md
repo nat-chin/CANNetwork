@@ -1,4 +1,6 @@
-### CAN Network will consist of MPU6050 , GPS module , voltage and Current Sensor
+## CAN Network link to IoT system.
+
+### CAN Network consist of MPU6050(IMU) , GPS module , voltage and Current Sensor
 1.ESP32 (Head Unit) : 
 2.Arduino UNO R3 or Nano : IMU data
 3.Arduino UNO R3 or Nano : RPM , Nominal Voltage of Baterry , Current to Load (Motor)
@@ -24,3 +26,10 @@ ID priority (Non-Header Node)
 
     So the order of received message in 500 Kbps (with 100ms timer delay) (Sampling Rate) is 
     Lat Lng RPM Accelx , Accely , Accelz , Gyro x , Gyro y , Gyro z
+
+### PUT The block Diagram and Flow of Phase 1 project
+### Block Diagram of Whole Project
+
+### Journey Through each phase
+
+### Schematic or Image of Pinout
