@@ -77,14 +77,15 @@ void loop() {
 
   mcp2515Error();
   // Polling for Trigger from ESP32 Head unit (Better to use Interrupt , but INT pin is damaged rn.)
-  if(millis()-last_msg_time >= 10){
-    if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
-      if(trgMsg.can_id == AcceptedTriggerID){
-        msg_counter = 1; }
-      Serial.println("Node B Triggered");
-      last_msg_time = millis(); // Assign last_msg_time for the 1st time for next comparison  
-    } 
-  }  
+
+  if (mcp2515.readMessage(&trgMsg) == MCP2515::ERROR_OK) { 
+    // Manual Filter , since Acceptance Filter doesn't work
+    if(trgMsg.can_id == AcceptedTriggerID){
+      Serial.print(trgMsg.can_id);
+      msg_counter = 1; 
+      Serial.println("Node B Triggered");} 
+  }
+
   float* mpuData = readMPU();  
     
     // Accel X 2nd Frame

@@ -50,7 +50,7 @@ void setup() {
   /*  mcp2515 init  */
     while (!Serial); // halt communication if Uart Serial port isn't available
     mcp2515.reset();
-    mcp2515.setBitrate(standard_bitrate,MCP_16MHZ); //Set Bit rate to 500KBPS (Need to match with target device)
+    mcp2515.setBitrate(standard_bitrate,MCP_16MHZ); //Set Bit rate to 125KBPS (Need to match with target device)
     mcp2515.setNormalMode();
 
   /* Set CAN Frame struct.*/
@@ -86,7 +86,7 @@ void loop() {
   /* Read Motor RPM */
     readEncoder(); 
     // float motorcurrent = readCurrent();
-    float motorcurrent = 0.0;
+    float motorcurrent = 3.0;
     // RPM 1st Frame
     uint8_t *sendByteRPM = Encode_bytearray(counter);
     for(int i = 0; i< standard_dlc; i++){
